@@ -2522,6 +2522,7 @@
   <!-- TOAST -->
   <div id="toast"></div>
   <audio id="aud" preload="auto"></audio>
+  <audio id="aud2" preload="auto"></audio>
   <!-- Silent 1-second loop to hold iOS audio session open across track gaps -->
   <audio id="keepalive" loop preload="auto"></audio>
 
@@ -2597,9 +2598,6 @@
     function sortCol() { return getSortFor(view).col; }
     function sortDir() { return getSortFor(view).dir; }
     let curUrl = null, online = navigator.onLine;
-    // iOS background audio: silent keepalive + next-track prefetch
-    let _kaUnlocked = false;  // audio session unlocked by user gesture
-    let _prefetchId = null, _prefetchSrc = null, _prefetchUrl = null; // next-track lookahead
     // Song meta: { [id]: { starred, playCount, lastPlayed, albumArtUrl } }
     let songMeta = {};
     // Art: fetched per-song on play, never bulk
@@ -2607,60 +2605,131 @@
     let livePoller = null, liveIgnoreSong = null, lastNPPush = 0;
     const DEVICE_NAME = (() => { const ua = navigator.userAgent; if (/iPhone/.test(ua)) return 'iPhone'; if (/iPad/.test(ua)) return 'iPad'; if (/Android/.test(ua)) return 'Android'; if (/Mac/.test(ua)) return 'Mac'; return 'Desktop'; })();
 
-    const aud = document.getElementById('aud');
-    aud.volume = 0.85;
+    // ── DUAL-AUDIO PING-PONG (gapless playback) ──────────────────────────────────
+    // Two <audio> elements alternate as active/standby.
+    // While A plays, B pre-buffers the next track. At A's 'ended' event,
+    // B.play() is called immediately (near-zero latency), then roles swap.
+    const _audEls = [document.getElementById('aud'), document.getElementById('aud2')];
+    let _activeIdx = 0;          // which element is currently active
+    let _standbyLoaded = null;   // song id loaded into standby element
+    let _standbyUrl  = null;     // blob URL created for standby (if any)
+    const BASE_VOLUME = 0.85;
+
+    // ── REPLAYGAIN VOLUME NORMALISATION ──────────────────────────────────────────
+    // Applies REPLAYGAIN_TRACK_GAIN dB offset to bring songs to ~89 dBFS target.
+    // Preamp of -1 dB reduces risk of clipping after normalisation.
+    const RG_PREAMP_DB = -1.0;
+    function rgVolume(song) {
+      const rg = song?.rg_track ?? null;
+      if (rg === null || rg === undefined) return BASE_VOLUME;
+      const gain_linear = Math.pow(10, (rg + RG_PREAMP_DB) / 20);
+      return Math.min(1.0, Math.max(0.05, BASE_VOLUME * gain_linear));
+    }
+
+    // Volume: apply to active element only; standby gets its own volume set when loaded
+    function _setAudVol(v) { aud.volume = v; }
 
     // ── iOS AUDIO SESSION KEEPALIVE ───────────────────────────────────────────────
-    // A 1-second silent MP3 (base64) looped to hold the iOS audio session open
-    // between tracks, preventing WKWebView from suspending audio on lock screen.
+    let _kaUnlocked = false;
     const SILENT_MP3 = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADwADMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM////////////////////////////////////////////////////////////////AAAAAExhdmYAAAAAAAAAAAAAAAAAAAAAACQAAAAAAAAAAAPA5WsuAAAAAAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIADWg+M9MIAARF5QgkABMGAAMCIgQAYABAIiBhEQiIQFECJEABEAAAH/AAAB4AA=';
     const kaEl = document.getElementById('keepalive');
     kaEl.src = SILENT_MP3;
-    kaEl.volume = 0.001; // effectively silent
+    kaEl.volume = 0.001;
 
     function unlockAudioSession() {
       if (_kaUnlocked) return;
       _kaUnlocked = true;
       kaEl.play().catch(() => { _kaUnlocked = false; });
+      // Also prime both audio elements so iOS allows future .play() calls
+      _audEls.forEach(a => { if (!a.src) { a.volume = 0; a.src = SILENT_MP3; a.play().catch(()=>{}); a.pause(); a.src = ''; a.volume = BASE_VOLUME; } });
     }
 
-    // Start keepalive when main audio plays; stop only when explicitly paused by user
-    aud.addEventListener('play', () => {
+    // Start keepalive on any real audio element play event
+    _audEls.forEach(a => a.addEventListener('play', () => {
       unlockAudioSession();
       if (kaEl.paused) kaEl.play().catch(() => {});
-    });
-    // Keep looping silently even when aud pauses — stops only on explicit user pause
-    // (handled in the pause listener below via a flag)
+    }));
 
-    // ── NEXT-TRACK PREFETCH ───────────────────────────────────────────────────────
-    // Resolves the next song's src URL ~25s before the current track ends,
-    // so playNext() has zero async work to do at the track boundary.
+    // ── STANDBY PRE-BUFFERING ─────────────────────────────────────────────────────
+    // Called ~25s before track end. Loads next song's URL into standby element
+    // and starts buffering so it's ready at 'ended'.
+    let _prefetchId = null, _prefetchSrc = null, _prefetchUrl = null; // URL resolution cache
+
     async function prefetchNext() {
       const nextQi = shuf
-        ? null  // can't predict shuffle; skip prefetch
+        ? null
         : (rep === 2 ? qi : (qi + 1) % queue.length);
       if (nextQi === null || nextQi === qi) return;
       const nextId = queue[nextQi];
-      if (!nextId || nextId === _prefetchId) return; // already prefetched
-      _prefetchId = nextId;
-      _prefetchSrc = null;
-      _prefetchUrl = null;
-      try {
-        const song = songs.find(s => s.id === nextId); if (!song) return;
-        const cached = await iget('blobs', nextId);
-        if (cached?.blob) {
-          _prefetchUrl = URL.createObjectURL(cached.blob);
-          _prefetchSrc = _prefetchUrl;
-        } else if (online && cfg.url) {
-          _prefetchSrc = await streamUrl(song);
-        }
-      } catch { _prefetchId = null; }
+      if (!nextId) return;
+
+      // Resolve src URL (cache it)
+      if (nextId !== _prefetchId) {
+        _prefetchId = nextId;
+        _prefetchSrc = null;
+        if (_prefetchUrl) { URL.revokeObjectURL(_prefetchUrl); _prefetchUrl = null; }
+        try {
+          const song = songs.find(s => s.id === nextId); if (!song) return;
+          const cached = await iget('blobs', nextId);
+          if (cached?.blob) {
+            _prefetchUrl = URL.createObjectURL(cached.blob);
+            _prefetchSrc = _prefetchUrl;
+          } else if (online && cfg.url) {
+            _prefetchSrc = await streamUrl(song);
+          }
+        } catch { _prefetchId = null; return; }
+      }
+
+      // Load into standby element so browser starts buffering
+      if (_prefetchSrc && _standbyLoaded !== nextId) {
+        const sb = _audEls[1 - _activeIdx]; // current standby element
+        sb.pause();
+        if (_standbyUrl && _standbyUrl !== _prefetchUrl) { URL.revokeObjectURL(_standbyUrl); _standbyUrl = null; }
+        sb.src = _prefetchSrc;
+        _standbyUrl = _prefetchUrl || null;
+        _standbyLoaded = nextId;
+        sb.load(); // start buffering without playing
+        const nextSong = songs.find(s => s.id === nextId);
+        sb.volume = rgVolume(nextSong);
+      }
     }
 
     function clearPrefetch() {
       if (_prefetchUrl) { URL.revokeObjectURL(_prefetchUrl); _prefetchUrl = null; }
       _prefetchId = null; _prefetchSrc = null;
+      if (_standbyUrl) { URL.revokeObjectURL(_standbyUrl); _standbyUrl = null; }
+      _standbyLoaded = null;
+      _audEls[1 - _activeIdx].src = ''; // unload standby element
     }
+
+    // ── AUDIO ELEMENT — direct reference, swapped at track boundaries ────────────
+    // `aud` always points to the currently active <audio> element.
+    // At a gapless track switch we reassign `aud` to the standby element.
+    // All external code uses `aud` and needs no changes.
+    let aud = _audEls[0];
+    aud.volume = BASE_VOLUME;
+
+    // Re-attach all critical event listeners to whichever element `aud` points to.
+    // Called once at init and once after every ping-pong swap.
+    function _attachAudListeners(el) {
+      el._jbListened = true;
+      el.addEventListener('ended', _onEnded);
+      el.addEventListener('play',  _onPlay);
+      el.addEventListener('pause', _onPause);
+      el.addEventListener('timeupdate', _onTimeUpdate);
+      el.addEventListener('loadedmetadata', _onLoadedMeta);
+      el.addEventListener('loadedmetadata', _onLoadedMetaPlayCount);
+    }
+    // Detach from an element when it becomes standby so its events don't bleed through
+    function _detachAudListeners(el) {
+      el.removeEventListener('ended', _onEnded);
+      el.removeEventListener('play',  _onPlay);
+      el.removeEventListener('pause', _onPause);
+      el.removeEventListener('timeupdate', _onTimeUpdate);
+      el.removeEventListener('loadedmetadata', _onLoadedMeta);
+      el.removeEventListener('loadedmetadata', _onLoadedMetaPlayCount);
+    }
+
     function apiBase() { return (cfg.url || '').replace(/\/$/, ''); }
     function aurl(action, p = {}) { return apiBase() + '/api.php?' + new URLSearchParams({ action, ...p }); }
     async function afetch(action, p = {}) {
@@ -2776,21 +2845,7 @@
         _playCountTimer = null;
       }, 20000);
     }
-    // Once duration is known, recalculate the threshold
-    aud.addEventListener('loadedmetadata', () => {
-      if (!_playCountId || _playCountTimer === null) return;
-      const id = _playCountId;
-      const half = aud.duration > 0 ? (aud.duration / 2) * 1000 : Infinity;
-      const threshold = Math.min(20000, half);
-      // Already waited some time — adjust remaining wait
-      const elapsed = (aud.currentTime || 0) * 1000;
-      const remaining = Math.max(0, threshold - elapsed);
-      clearTimeout(_playCountTimer);
-      _playCountTimer = setTimeout(() => {
-        if (_playCountId === id) recordPlay(id);
-        _playCountTimer = null;
-      }, remaining);
-    });
+    // Once duration is known, recalculate the threshold — handled in _onLoadedMetaPlayCount (named fn, re-attached on swap)
     async function recordSkip(id) {
       if (!id) return;
       // Cancel any pending play count — song was skipped before threshold
@@ -2936,27 +2991,44 @@
     async function playSong(id, auto = true, userInitiated = false) {
       const song = songs.find(s => s.id === id); if (!song) return;
 
-      // Freeze queue when user explicitly starts playback from a view
       if (userInitiated) freezeQueue(id);
 
-      // Keep qi in sync with frozen queue
       const newQi = queue.indexOf(id);
       if (newQi >= 0) qi = newQi;
-
-      // Stable playing ID — never changes on view switch or rebuildQ
       playingId = id;
 
-      // Revoke any previous blob URL
-      if (curUrl && curUrl !== _prefetchUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
-      let src;
-      // Use prefetched src if it's for this exact song
-      if (_prefetchId === id && _prefetchSrc) {
-        src = _prefetchSrc;
-        curUrl = _prefetchUrl || null;
+      // ── GAPLESS PING-PONG PATH ────────────────────────────────────────────────
+      // If standby element already has this song buffered, swap instantly.
+      const sbEl = _audEls[1 - _activeIdx];
+      if (_standbyLoaded === id && sbEl.src) {
+        // Silence and detach old active — don't call .pause() as that fires onPause UI
+        const oldEl = aud;
+        _detachAudListeners(oldEl);
+        oldEl.pause();
+        if (curUrl && curUrl !== _standbyUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
+
+        // Promote standby
+        _activeIdx = 1 - _activeIdx;
+        aud = _audEls[_activeIdx];
+        curUrl = _standbyUrl || null;
+        _standbyLoaded = null; _standbyUrl = null;
         _prefetchId = null; _prefetchSrc = null; _prefetchUrl = null;
+
+        _attachAudListeners(aud);
+        aud.volume = rgVolume(song);
         setBadge(curUrl ? '' : 'stream', curUrl ? '● OFFLINE' : '⋯ STREAMING');
+
+        if (auto) {
+          try { await aud.play(); playing = true; }
+          catch { playing = false; }
+        }
       } else {
+        // ── NORMAL LOAD PATH ───────────────────────────────────────────────────
+        // Discard any standby and load fresh into the current active element.
         clearPrefetch();
+        if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
+
+        let src;
         const cached = await iget('blobs', id);
         if (cached?.blob) {
           curUrl = URL.createObjectURL(cached.blob); src = curUrl;
@@ -2965,18 +3037,22 @@
           try { src = await streamUrl(song); setBadge('stream', '⋯ STREAMING'); }
           catch { toast('Stream failed'); return; }
         } else { toast('Not cached & offline'); return; }
+
+        aud.volume = rgVolume(song);
+        aud.src = src;
+        if (auto) {
+          try { await aud.play(); playing = true; }
+          catch { playing = false; }
+        }
       }
-      aud.src = src;
-      if (auto) { try { await aud.play(); playing = true; } catch { playing = false; } }
+
       updateAllNP(song);
       setMS(song);
       renderList();
       schedulePlayCount(id);
       await pushNowPlaying(song);
       updNPActions();
-      if (!getMeta(id).albumArtUrl) {
-        fetchArtForSong(song).then(() => updateAllNP(song));
-      }
+      if (!getMeta(id).albumArtUrl) fetchArtForSong(song).then(() => updateAllNP(song));
     }
 
     function updateAllNP(song) {
@@ -3102,18 +3178,22 @@ function setMS(song) {
       playSong(queue[qi]);
     }
 
-    let _userPaused = false; // track whether pause was user-initiated
+    let _userPaused = false;
 
-    aud.addEventListener('ended', () => { if (rep === 2) { aud.currentTime = 0; aud.play(); } else playNext(); });
-    aud.addEventListener('play', () => { playing = true; _userPaused = false; updPBtn(); renderList(); });
-    aud.addEventListener('pause', () => {
+    function _onEnded() {
+      if (rep === 2) { aud.currentTime = 0; aud.play(); } else playNext();
+    }
+    function _onPlay() {
+      playing = true; _userPaused = false; updPBtn(); renderList();
+      unlockAudioSession();
+      if (kaEl.paused) kaEl.play().catch(() => {});
+    }
+    function _onPause() {
       playing = false; updPBtn(); renderList();
       if (curSong()) pushNowPlaying(curSong());
-      // Only stop keepalive if this was a deliberate user pause, not a track transition
       if (_userPaused) kaEl.pause();
-    });
-
-    aud.addEventListener('timeupdate', () => {
+    }
+    function _onTimeUpdate() {
       if (!aud.duration) return;
       const p = (aud.currentTime / aud.duration) * 100;
       document.getElementById('pf').style.width = p + '%';
@@ -3122,18 +3202,33 @@ function setMS(song) {
       document.getElementById('mob-pf').style.width = p + '%';
       document.getElementById('np-panel-pf').style.width = p + '%';
       document.getElementById('np-panel-cur').textContent = fmt(aud.currentTime);
-      // Push live position every 15s
       if (playing && Date.now() - lastNPPush > 15000 && curSong()) pushNowPlaying(curSong());
       if ('mediaSession' in navigator && navigator.mediaSession.setPositionState)
-        try { navigator.mediaSession.setPositionState({ duration: aud.duration, playbackRate: 1, position: aud.currentTime }); } catch { }
-      // Prefetch next track when 25s (or 25%) remain — whichever threshold is hit first
+        try { navigator.mediaSession.setPositionState({ duration: aud.duration, playbackRate: 1, position: aud.currentTime }); } catch {}
       const remaining = aud.duration - aud.currentTime;
       if (!_prefetchId && (remaining < 25 || p > 75)) prefetchNext();
-    });
-    aud.addEventListener('loadedmetadata', () => {
+    }
+    function _onLoadedMeta() {
       document.getElementById('tt').textContent = fmt(aud.duration);
       document.getElementById('np-panel-tot').textContent = fmt(aud.duration);
-    });
+    }
+    // play-count threshold recalculation on loadedmetadata (separate named fn)
+    function _onLoadedMetaPlayCount() {
+      if (!_playCountId || _playCountTimer === null) return;
+      const id = _playCountId;
+      const half = aud.duration > 0 ? (aud.duration / 2) * 1000 : Infinity;
+      const threshold = Math.min(20000, half);
+      const elapsed = (aud.currentTime || 0) * 1000;
+      const remaining = Math.max(0, threshold - elapsed);
+      clearTimeout(_playCountTimer);
+      _playCountTimer = setTimeout(() => {
+        if (_playCountId === id) recordPlay(id);
+        _playCountTimer = null;
+      }, remaining);
+    }
+
+    // Attach listeners to the initial active element
+    _attachAudListeners(aud);
 
     function fmt(s) { if (!s || isNaN(s)) return '0:00'; return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }
     function fmtDate(ts) { if (!ts) return ''; const d = new Date(ts); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
