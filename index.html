@@ -430,6 +430,8 @@
       cursor: default;
       transition: background .05s;
       border-bottom: 1px solid transparent;
+      position: relative;   /* anchor for swipe-action-btn */
+      overflow: hidden;     /* clip button until row is translated */
     }
 
     /* .sr:hover removed — iTunes-style, no hover highlight */
@@ -3382,27 +3384,52 @@ function setMS(song) {
     }
 
     // ── ALBUM COMPLETENESS DETECTION ─────────────────────────────────────────────
-    // An album is "complete" if: grouped by artist+album, has ≥2 tracks,
-    // and track numbers form a consecutive sequence starting at 1 with no gaps.
+    // Strip "feat.", "ft.", "& ...", "with ...", "vs." suffixes for grouping only (not display)
+    function _groupArtist(song) {
+      // Prefer album_artist tag — it's set to the canonical artist name by taggers
+      if (song.album_artist) return song.album_artist.toLowerCase().trim();
+      // Fall back to track artist with feat. portion removed
+      const a = (song.artist || '').trim();
+      return a.replace(/\s+(feat\.|ft\.|featuring|&|with|vs\.?)\s+.*/i, '').toLowerCase().trim();
+    }
+
+    // An album is "complete" if every disc has consecutive tracks starting at 1 with no gaps.
+    // Groups by (album_artist_or_stripped_artist + album). Multi-disc albums handled per-disc.
     // Returns a Set of song IDs that belong to complete albums.
     function getCompleteAlbumIds() {
+      // Step 1 — group by grouping key (stripped artist + album title)
       const groups = {};
       for (const s of songs) {
         if (!s.album || !s.track) continue;
-        const key = (s.artist || '').toLowerCase() + '|||' + s.album.toLowerCase();
+        const key = _groupArtist(s) + '|||' + s.album.toLowerCase().trim();
         if (!groups[key]) groups[key] = [];
         groups[key].push(s);
       }
+
       const ids = new Set();
       for (const group of Object.values(groups)) {
         if (group.length < 2) continue;
-        const tracks = group.map(s => s.track).sort((a, b) => a - b);
-        // Must start at 1, no gaps
-        let complete = tracks[0] === 1;
-        for (let i = 1; i < tracks.length && complete; i++) {
-          if (tracks[i] !== tracks[i - 1] + 1) complete = false;
+
+        // Step 2 — split by disc number (default disc 1)
+        const byDisc = {};
+        for (const s of group) {
+          const d = s.disc || 1;
+          if (!byDisc[d]) byDisc[d] = [];
+          byDisc[d].push(s);
         }
-        if (complete) group.forEach(s => ids.add(s.id));
+
+        // Step 3 — every disc must have consecutive tracks from 1 with no gaps
+        let albumComplete = true;
+        for (const discSongs of Object.values(byDisc)) {
+          const tracks = discSongs.map(s => s.track).sort((a, b) => a - b);
+          if (tracks[0] !== 1) { albumComplete = false; break; }
+          for (let i = 1; i < tracks.length; i++) {
+            if (tracks[i] !== tracks[i - 1] + 1) { albumComplete = false; break; }
+          }
+          if (!albumComplete) break;
+        }
+
+        if (albumComplete) group.forEach(s => ids.add(s.id));
       }
       return ids;
     }
@@ -3419,8 +3446,35 @@ function setMS(song) {
       }
       if (view === 'cached') s = songs.filter(x => cachedIds.has(x.id));
       else if (view === 'all') s = [...songs];
-      else if (view === 'albums') { const ids = getCompleteAlbumIds(); s = songs.filter(x => ids.has(x.id)); }
-      else if (view === 'singles') { const ids = getCompleteAlbumIds(); s = songs.filter(x => !ids.has(x.id)); }
+      else if (view === 'albums') {
+        const ids = getCompleteAlbumIds();
+        s = songs.filter(x => ids.has(x.id));
+        // Always sort albums view by artist → album → disc → track regardless of user sort
+        s.sort((a, b) => {
+          const ga = _groupArtist(a), gb = _groupArtist(b);
+          if (ga !== gb) return ga < gb ? -1 : 1;
+          const al = (a.album || '').toLowerCase(), bl = (b.album || '').toLowerCase();
+          if (al !== bl) return al < bl ? -1 : 1;
+          if ((a.disc || 1) !== (b.disc || 1)) return (a.disc || 1) - (b.disc || 1);
+          return (a.track || 0) - (b.track || 0);
+        });
+        if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title||'').toLowerCase().includes(q)||(x.artist||'').toLowerCase().includes(q)||(x.album||'').toLowerCase().includes(q)); }
+        return s;
+      }
+      else if (view === 'singles') {
+        const ids = getCompleteAlbumIds();
+        s = songs.filter(x => !ids.has(x.id));
+        // Sort singles by artist → album → track
+        s.sort((a, b) => {
+          const ga = _groupArtist(a), gb = _groupArtist(b);
+          if (ga !== gb) return ga < gb ? -1 : 1;
+          const al = (a.album || '').toLowerCase(), bl = (b.album || '').toLowerCase();
+          if (al !== bl) return al < bl ? -1 : 1;
+          return (a.track || 0) - (b.track || 0);
+        });
+        if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title||'').toLowerCase().includes(q)||(x.artist||'').toLowerCase().includes(q)||(x.album||'').toLowerCase().includes(q)); }
+        return s;
+      }
       else if (view === 'starred') s = songs.filter(x => isStarred(x.id));
       else if (view === 'never-played') s = songs.filter(x => !playCount(x.id));
       else if (view === 'most-played') s = [...songs].filter(x => playCount(x.id) > 0);
@@ -3802,8 +3856,6 @@ function setMS(song) {
           actionBtn.className = 'swipe-action-btn ' + (swipeIsRemove ? 'swipe-remove' : 'swipe-add');
           actionBtn.textContent = swipeLabel;
           actionBtn.style.width = ACTION_W + 'px';
-          row.style.position = 'relative';
-          row.style.overflow = 'hidden';
           row.appendChild(actionBtn);
 
           function swipeReset(animate) {
@@ -4396,7 +4448,13 @@ function setMS(song) {
       document.getElementById('search').value = sq;
       renderList();
     });
+    // Dismiss keyboard when user taps or scrolls the song list
+    document.getElementById('lw').addEventListener('touchstart', () => {
+      const inp = document.getElementById('mob-search-input');
+      if (document.activeElement === inp) inp.blur();
+    }, { passive: true });
     document.getElementById('mob-search-input').addEventListener('blur', () => {
+      // Small delay so cancel-button click registers before the blur closes the bar
       setTimeout(() => {
         if (document.activeElement !== document.getElementById('mob-search-input')) closeMobSearch();
       }, 150);
