@@ -2739,10 +2739,14 @@
 
     function apiBase() { return (cfg.url || '').replace(/\/$/, ''); }
     function aurl(action, p = {}) { return apiBase() + '/api.php?' + new URLSearchParams({ action, ...p }); }
-    async function afetch(action, p = {}) {
-      const r = await fetch(aurl(action, p), { headers: { 'X-API-Key': cfg.apiKey || '' } });
-      if (!r.ok) throw new Error(`${action}: ${r.status}`);
-      return r.json();
+    async function afetch(action, p = {}, timeoutMs = 30000) {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const r = await fetch(aurl(action, p), { headers: { 'X-API-Key': cfg.apiKey || '' }, signal: ctrl.signal });
+        if (!r.ok) throw new Error(`${action}: ${r.status}`);
+        return r.json();
+      } finally { clearTimeout(tid); }
     }
     async function apost(action, body) {
       const r = await fetch(apiBase() + '/api.php?action=' + action, {
@@ -2761,23 +2765,35 @@
     // ── SYNC ──────────────────────────────────────────────────────────────────────
     async function syncLib() {
       if (!cfg.url || !cfg.apiKey) { showSet(); return; }
-      setSt('loading', 'Syncing…');
-      console.log('[Sync] Starting library sync…');
+      setSt('loading', 'Syncing\u2026');
+      console.log('[Sync] Starting library sync\u2026');
       const t0 = Date.now();
       try {
-        console.log('[Sync] Fetching library manifest from server…');
-        const d = await afetch('library');
+        // 3-minute timeout: first ffprobe scan of a large library can take a while
+        const d = await afetch('library', {}, 180000);
         songs = d.songs || [];
-        console.log(`[Sync] Got ${songs.length} songs from server (${Date.now()-t0}ms). Cache hit: ${!!d.cached}, Generated: ${d.generated ? new Date(d.generated*1000).toLocaleTimeString() : 'unknown'}`);
+        console.log(`[Sync] Got ${songs.length} songs (${Date.now()-t0}ms)`);
         try { localStorage.setItem('jb-manifest', JSON.stringify(songs)); } catch { }
         setSt('ok', `${songs.length} songs`);
-        toast(`Synced — ${songs.length} songs`);
+        toast(`Synced \u2014 ${songs.length} songs`);
         await pullMeta();
         await pullPlaylists();
         stampNewSongs();
         rebuildQ(); renderList(); renderSB();
         console.log(`[Sync] Complete in ${Date.now()-t0}ms`);
-      } catch (e) { setSt('err', 'Error'); toast('Sync failed: ' + e.message); console.error('[Sync] Failed:', e); }
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          // Our timeout fired — the API is still processing, not a real failure
+          setSt('loading', 'Still syncing\u2026');
+          toast('Library scan is taking a while \u2014 retrying in 30s');
+          console.warn('[Sync] Timeout \u2014 retrying in 30s');
+          setTimeout(syncLib, 30000);
+        } else {
+          setSt('err', 'Error');
+          toast('Sync failed: ' + e.message);
+          console.error('[Sync] Failed:', e);
+        }
+      }
     }
     function setSt(cls, txt) { const el = document.getElementById('sync-status'); el.className = cls; el.textContent = txt; }
 
@@ -3059,7 +3075,7 @@
       schedulePlayCount(id);
       await pushNowPlaying(song);
       updNPActions();
-      if (!getMeta(id).albumArtUrl) fetchArtForSong(song).then(() => updateAllNP(song));
+      if (!getMeta(id).albumArtUrl) fetchArtForSong(song).then(() => { updateAllNP(song); setMS(song); });
     }
 
     function updateAllNP(song) {
@@ -3120,27 +3136,50 @@
       document.getElementById('np-pai').style.display = p ? 'block' : 'none';
     }
 
+    // Generate a simple placeholder artwork as a data URL (canvas → PNG)
+    // so MediaSession on iOS/Mac shows something nicer than the favicon.
+    let _placeholderArtUrl = null;
+    function getPlaceholderArtUrl() {
+      if (_placeholderArtUrl) return _placeholderArtUrl;
+      try {
+        const c = document.createElement('canvas');
+        c.width = c.height = 512;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#1c1c1f';
+        ctx.fillRect(0, 0, 512, 512);
+        // Draw a simple music note icon
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 28;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        // Stem
+        ctx.moveTo(290, 160); ctx.lineTo(290, 310);
+        // Note head
+        ctx.ellipse(260, 320, 44, 32, -0.4, 0, Math.PI * 2);
+        ctx.stroke();
+        // Beam
+        ctx.beginPath();
+        ctx.moveTo(290, 160); ctx.lineTo(380, 130);
+        ctx.stroke();
+        _placeholderArtUrl = c.toDataURL('image/png');
+      } catch { _placeholderArtUrl = null; }
+      return _placeholderArtUrl;
+    }
+
 function setMS(song) {
   if (!('mediaSession' in navigator)) return;
+  const m = getMeta(song.id);
+  const artUrl = m.albumArtUrl || getPlaceholderArtUrl();
+  const artwork = artUrl
+    ? [{ src: artUrl, sizes: artUrl.startsWith('data:') ? '512x512' : '600x600', type: artUrl.startsWith('data:') ? 'image/png' : 'image/jpeg' }]
+    : [];
 
-  const meta = {
+  navigator.mediaSession.metadata = new MediaMetadata({
     title: song.title || '',
     artist: song.artist || '',
-    album: song.album || ''
-  };
-
-  const m = getMeta(song.id);
-
-  const fallback = [
-    { src: '/artwork-512.png', sizes: '512x512', type: 'image/png' },
-    { src: '/artwork-192.png', sizes: '192x192', type: 'image/png' }
-  ];
-
-  meta.artwork = m.albumArtUrl
-    ? [{ src: m.albumArtUrl, sizes: '600x600', type: 'image/jpeg' }]
-    : fallback;
-
-  navigator.mediaSession.metadata = new MediaMetadata(meta);
+    album: song.album || '',
+    artwork
+  });
 
   navigator.mediaSession.setActionHandler('play', () => { aud.play(); playing = true; updPBtn(); pushNowPlaying(curSong()); });
   navigator.mediaSession.setActionHandler('pause', () => { aud.pause(); playing = false; updPBtn(); pushNowPlaying(curSong()); });
@@ -3188,7 +3227,51 @@ function setMS(song) {
     let _userPaused = false;
 
     function _onEnded() {
-      if (rep === 2) { aud.currentTime = 0; aud.play(); } else playNext();
+      if (rep === 2) { aud.currentTime = 0; aud.play(); return; }
+
+      // ── GAPLESS fast path ─────────────────────────────────────────────────────
+      // If standby element is already buffered for the next song, start it
+      // *synchronously* right here — before any async/UI work — to minimize gap.
+      const nextQi = shuf ? null : (qi + 1) % queue.length;
+      const nextId = nextQi !== null ? queue[nextQi] : null;
+      const sbEl = _audEls[1 - _activeIdx];
+      if (nextId && _standbyLoaded === nextId && sbEl.src) {
+        // Detach listeners from old element
+        const oldEl = aud;
+        _detachAudListeners(oldEl);
+        oldEl.pause();
+        if (curUrl && curUrl !== _standbyUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
+
+        // Promote standby — critical: .play() is called immediately, synchronously
+        _activeIdx = 1 - _activeIdx;
+        aud = _audEls[_activeIdx];
+        curUrl = _standbyUrl || null;
+        _standbyLoaded = null; _standbyUrl = null;
+        _prefetchId = null; _prefetchSrc = null; _prefetchUrl = null;
+
+        _attachAudListeners(aud);
+        aud.play().catch(() => {}); // kick off playback NOW, no await
+        playing = true;
+
+        // Update state async (doesn't affect audio timing)
+        qi = nextQi;
+        playingId = nextId;
+        const song = songs.find(s => s.id === nextId);
+        if (song) {
+          aud.volume = rgVolume(song);
+          updateAllNP(song);
+          setMS(song);
+          renderList();
+          schedulePlayCount(nextId);
+          pushNowPlaying(song);
+          updNPActions();
+          if (!getMeta(nextId).albumArtUrl) fetchArtForSong(song).then(() => { updateAllNP(song); setMS(song); });
+        }
+        return;
+      }
+
+      // Fallback: normal async path
+      playNext();
     }
     function _onPlay() {
       playing = true; _userPaused = false; updPBtn(); renderList();
