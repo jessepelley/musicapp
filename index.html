@@ -1789,79 +1789,6 @@
       color: var(--text3);
     }
 
-    /* Now playing indicator dot in toolbar */
-    #np-live-btn {
-      position: relative;
-      background: none;
-      border: none;
-      color: var(--text3);
-      cursor: pointer;
-      padding: 4px 6px;
-      border-radius: 5px;
-      font-size: 11px;
-      font-family: 'DM Mono', monospace;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      transition: color .15s;
-      flex-shrink: 0;
-    }
-
-    #np-live-btn:hover {
-      color: var(--text);
-      background: var(--bg3);
-    }
-
-    #np-live-btn .live-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--text3);
-      transition: background .3s;
-    }
-
-    #np-live-btn .live-dot.active {
-      background: var(--green);
-      box-shadow: 0 0 6px var(--green);
-    }
-
-    #np-live-btn .live-dot.other {
-      background: var(--accent);
-      box-shadow: 0 0 6px var(--accent);
-    }
-
-    /* Live now-playing banner */
-    #live-banner {
-      display: none;
-      align-items: center;
-      gap: 10px;
-      padding: 6px 14px;
-      background: var(--accent-light);
-      border-bottom: 1px solid var(--accent);
-      font-size: 11.5px;
-      color: var(--text2);
-      cursor: pointer;
-    }
-
-    #live-banner.show {
-      display: flex;
-    }
-
-    #live-banner strong {
-      color: var(--text);
-    }
-
-    #live-banner .lb-dismiss {
-      margin-left: auto;
-      color: var(--text3);
-      font-size: 16px;
-      line-height: 1;
-      cursor: pointer;
-    }
-
-    #live-banner .lb-dismiss:hover {
-      color: var(--text);
-    }
 
     /* Sort options in col header — album artist */
     /* (no extra CSS needed, handled by data-col="albumartist") */
@@ -2020,13 +1947,6 @@
     .sa-arrow  { opacity: .6; font-size: 9px; margin-left: 2px; }
 
     /* Mobile live dot */
-    #mob-live-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--text3); display: inline-block; flex-shrink: 0;
-      transition: background .3s;
-    }
-    #mob-live-dot.active { background: var(--green); }
-    #mob-live-dot.other  { background: var(--accent); }
 
     /* ═══════════════════════════════════════════════════
    BULK SELECTION
@@ -2081,10 +2001,6 @@
           stroke-width="2" style="display:none">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
-      </button>
-      <button id="np-live-btn" title="Live session sync">
-        <span class="live-dot" id="live-dot"></span>
-        <span id="live-label">Live</span>
       </button>
       <div id="search-wrap" style="position:relative;display:flex;align-items:center;flex-shrink:0">
         <input type="text" id="search" placeholder="Search…">
@@ -2160,13 +2076,7 @@
     <div id="main">
 
       <!-- Live session banner -->
-      <div id="live-banner">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="12" r="10" />
-        </svg>
-        <span id="live-banner-txt">Someone is playing: <strong id="live-banner-song"></strong></span>
-        <span class="lb-dismiss" id="live-banner-dismiss">×</span>
-      </div>
+
       <div id="col-hdrs"><!-- populated by renderColHdrs() --></div>
       <!-- Up Next action bar — shown only in upnext view -->
       <div id="upnext-bar" style="display:none">
@@ -2279,9 +2189,6 @@
       <div id="mob-info">
         <div id="mob-np-t">Not playing</div>
         <div id="mob-np-a">—</div>
-      </div>
-      <div id="mob-live-dot-wrap" style="display:flex;align-items:center;padding:0 4px;flex-shrink:0">
-        <span class="live-dot" id="mob-live-dot"></span>
       </div>
       <div id="mob-ctrls">
         <button class="mob-cb" id="mob-search-trigger" aria-label="Search" title="Search">
@@ -2456,7 +2363,6 @@
   <!-- TOAST -->
   <div id="toast"></div>
   <audio id="aud" preload="auto"></audio>
-  <audio id="aud2" preload="auto"></audio>
 
   <script>
     'use strict';
@@ -2534,17 +2440,7 @@
     let songMeta = {};
     // Art: fetched per-song on play, never bulk
     // Live session
-    let livePoller = null, liveIgnoreSong = null, lastNPPush = 0;
-    const DEVICE_NAME = (() => { const ua = navigator.userAgent; if (/iPhone/.test(ua)) return 'iPhone'; if (/iPad/.test(ua)) return 'iPad'; if (/Android/.test(ua)) return 'Android'; if (/Mac/.test(ua)) return 'Mac'; return 'Desktop'; })();
 
-    // ── DUAL-AUDIO PING-PONG (gapless playback) ──────────────────────────────────
-    // Two <audio> elements alternate as active/standby.
-    // While A plays, B pre-buffers the next track. At A's 'ended' event,
-    // B.play() is called immediately (near-zero latency), then roles swap.
-    const _audEls = [document.getElementById('aud'), document.getElementById('aud2')];
-    let _activeIdx = 0;          // which element is currently active
-    let _standbyLoaded = null;   // song id loaded into standby element
-    let _standbyUrl  = null;     // blob URL created for standby (if any)
     const BASE_VOLUME = 0.85;
 
     // ── REPLAYGAIN VOLUME NORMALISATION ──────────────────────────────────────────
@@ -2558,70 +2454,13 @@
       return Math.min(1.0, Math.max(0.05, BASE_VOLUME * gain_linear));
     }
 
-    // Volume: apply to active element only; standby gets its own volume set when loaded
     function _setAudVol(v) { aud.volume = v; }
 
-    // ── STANDBY PRE-BUFFERING ─────────────────────────────────────────────────────
-    // Called ~25s before track end. Loads next song's URL into standby element
-    // and starts buffering so it's ready at 'ended'.
-    let _prefetchId = null, _prefetchSrc = null, _prefetchUrl = null; // URL resolution cache
+    function clearPrefetch() { /* no-op */ }
 
-    async function prefetchNext() {
-      const nextQi = shuf
-        ? null
-        : (rep === 2 ? qi : (qi + 1) % queue.length);
-      if (nextQi === null || nextQi === qi) return;
-      const nextId = queue[nextQi];
-      if (!nextId) return;
-
-      // Resolve src URL (cache it)
-      if (nextId !== _prefetchId) {
-        _prefetchId = nextId;
-        _prefetchSrc = null;
-        if (_prefetchUrl) { URL.revokeObjectURL(_prefetchUrl); _prefetchUrl = null; }
-        try {
-          const song = songs.find(s => s.id === nextId); if (!song) return;
-          const cached = await iget('blobs', nextId);
-          if (cached?.blob) {
-            _prefetchUrl = URL.createObjectURL(cached.blob);
-            _prefetchSrc = _prefetchUrl;
-          } else if (online && cfg.url) {
-            _prefetchSrc = await streamUrl(song);
-          }
-        } catch { _prefetchId = null; return; }
-      }
-
-      // Load into standby element so browser starts buffering
-      if (_prefetchSrc && _standbyLoaded !== nextId) {
-        const sb = _audEls[1 - _activeIdx]; // current standby element
-        sb.pause();
-        if (_standbyUrl && _standbyUrl !== _prefetchUrl) { URL.revokeObjectURL(_standbyUrl); _standbyUrl = null; }
-        sb.src = _prefetchSrc;
-        _standbyUrl = _prefetchUrl || null;
-        _standbyLoaded = nextId;
-        sb.load(); // start buffering without playing
-        const nextSong = songs.find(s => s.id === nextId);
-        sb.volume = rgVolume(nextSong);
-      }
-    }
-
-    function clearPrefetch() {
-      if (_prefetchUrl) { URL.revokeObjectURL(_prefetchUrl); _prefetchUrl = null; }
-      _prefetchId = null; _prefetchSrc = null;
-      if (_standbyUrl) { URL.revokeObjectURL(_standbyUrl); _standbyUrl = null; }
-      _standbyLoaded = null;
-      _audEls[1 - _activeIdx].src = ''; // unload standby element
-    }
-
-    // ── AUDIO ELEMENT — direct reference, swapped at track boundaries ────────────
-    // `aud` always points to the currently active <audio> element.
-    // At a gapless track switch we reassign `aud` to the standby element.
-    // All external code uses `aud` and needs no changes.
-    let aud = _audEls[0];
+    // ── AUDIO ELEMENT ───────────────────────────────────────────────────────────
+    let aud = document.getElementById('aud');
     aud.volume = BASE_VOLUME;
-
-    // Re-attach all critical event listeners to whichever element `aud` points to.
-    // Called once at init and once after every ping-pong swap.
     function _attachAudListeners(el) {
       el._jbListened = true;
       el.addEventListener('ended', _onEnded);
@@ -2694,7 +2533,7 @@
       console.log('[Sync] Starting library sync\u2026');
       const t0 = Date.now();
       try {
-        // 3-minute timeout: first ffprobe scan of a large library can take a while
+        // 3-minute timeout: first scan of a large library can take a while
         const d = await afetch('library', {}, 180000);
         songs = d.songs || [];
         console.log(`[Sync] Got ${songs.length} songs (${Date.now()-t0}ms)`);
@@ -2708,7 +2547,6 @@
         console.log(`[Sync] Complete in ${Date.now()-t0}ms`);
       } catch (e) {
         if (e.name === 'AbortError') {
-          // Our timeout fired — the API is still processing, not a real failure
           setSt('loading', 'Still syncing\u2026');
           toast('Library scan is taking a while \u2014 retrying in 30s');
           console.warn('[Sync] Timeout \u2014 retrying in 30s');
@@ -2841,67 +2679,6 @@
     }
 
     // ── NOW PLAYING / LIVE SYNC ───────────────────────────────────────────────────
-    async function pushNowPlaying(songOrNull) {
-      if (!cfg.url || !cfg.apiKey) return;
-      try {
-        const body = songOrNull
-          ? {
-            id: songOrNull.id, title: songOrNull.title, artist: songOrNull.artist,
-            album: songOrNull.album, duration: songOrNull.duration,
-            position: aud.currentTime || 0, playing, device: DEVICE_NAME, ts: Math.floor(Date.now() / 1000)
-          }
-          : { clear: true };
-        await apost('nowplaying_set', body);
-        lastNPPush = Date.now();
-      } catch { }
-    }
-
-    let _lastLiveNPId = null;
-    async function pollNowPlaying() {
-      if (!cfg.url || !cfg.apiKey) return;
-      try {
-        const d = await afetch('nowplaying_get');
-        const np = d.nowplaying;
-        // No active session, or session is not playing and stale (>2 min)
-        if (!np || !np.id) {
-          _lastLiveNPId = null;
-          hideLiveBanner(); updateLiveDot(false, false); return;
-        }
-        // Treat as stale if not playing and last push was >120s ago
-        const stale = !np.playing && np.position === 0 && (Date.now() - ((np.ts || 0) * 1000)) > 120000;
-        if (stale) { _lastLiveNPId = null; hideLiveBanner(); updateLiveDot(false, false); return; }
-        _lastLiveNPId = String(np.id);
-        const cs = curSong();
-        // Treat as "ours" if: same device name AND (same song OR we have any song loaded)
-        // This prevents the banner showing on the same device that's playing
-        const weHaveAudio = !!aud.src;
-        const sameSong = cs && String(cs.id) === String(np.id);
-        const isUs = (np.device === DEVICE_NAME) && (sameSong || weHaveAudio);
-        updateLiveDot(true, isUs);
-        if (isUs) { hideLiveBanner(); return; }
-        if (String(np.id) === String(liveIgnoreSong)) { return; }
-        showLiveBanner(np);
-      } catch { }
-    }
-
-    function updateLiveDot(active, ours) {
-      ['live-dot', 'mob-live-dot'].forEach(id => {
-        const dot = document.getElementById(id);
-        if (!dot) return;
-        dot.classList.remove('active', 'other');
-        if (active) dot.classList.add(ours ? 'active' : 'other');
-      });
-    }
-
-    function showLiveBanner(np) {
-      const b = document.getElementById('live-banner');
-      document.getElementById('live-banner-song').textContent =
-        [np.title, np.artist].filter(Boolean).join(' — ');
-      document.getElementById('live-banner-txt').childNodes[0].textContent =
-        `${np.device} is ${np.playing ? 'playing' : 'paused'}: `;
-      b.classList.add('show');
-    }
-    function hideLiveBanner() { document.getElementById('live-banner').classList.remove('show'); }
 
     // ── SHOW IN LIBRARY ──────────────────────────────────────────────────────────
     document.getElementById('np-show-in-lib').addEventListener('click', () => showInLibrary());
@@ -2927,22 +2704,6 @@
       toast('Showing in Songs');
     }
 
-    document.getElementById('live-banner-dismiss').addEventListener('click', e => {
-      e.stopPropagation();
-      // Store the current np id to ignore this specific song going forward
-      liveIgnoreSong = _lastLiveNPId || null;
-      hideLiveBanner();
-    });
-    document.getElementById('live-banner').addEventListener('click', () => {
-      // Jump to that song in the list
-      const songTxt = document.getElementById('live-banner-song').textContent;
-      document.getElementById('search').value = songTxt.split(' — ')[0] || '';
-      document.getElementById('search').dispatchEvent(new Event('input'));
-    });
-    document.getElementById('np-live-btn').addEventListener('click', () => {
-      pollNowPlaying();
-      toast('Checking live session…');
-    });
 
     // ── PLAYBACK ──────────────────────────────────────────────────────────────────
     async function playSong(id, auto = true, userInitiated = false) {
@@ -2954,34 +2715,7 @@
       if (newQi >= 0) qi = newQi;
       playingId = id;
 
-      // ── GAPLESS PING-PONG PATH ────────────────────────────────────────────────
-      // If standby element already has this song buffered, swap instantly.
-      const sbEl = _audEls[1 - _activeIdx];
-      if (_standbyLoaded === id && sbEl.src) {
-        // Silence and detach old active — don't call .pause() as that fires onPause UI
-        const oldEl = aud;
-        _detachAudListeners(oldEl);
-        oldEl.pause();
-        if (curUrl && curUrl !== _standbyUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
-
-        // Promote standby
-        _activeIdx = 1 - _activeIdx;
-        aud = _audEls[_activeIdx];
-        curUrl = _standbyUrl || null;
-        _standbyLoaded = null; _standbyUrl = null;
-        _prefetchId = null; _prefetchSrc = null; _prefetchUrl = null;
-
-        _attachAudListeners(aud);
-        aud.volume = rgVolume(song);
-        setBadge(curUrl ? '' : 'stream', curUrl ? '● OFFLINE' : '⋯ STREAMING');
-
-        if (auto) {
-          try { await aud.play(); playing = true; }
-          catch { playing = false; }
-        }
-      } else {
-        // ── NORMAL LOAD PATH ───────────────────────────────────────────────────
-        // Discard any standby and load fresh into the current active element.
+      {
         clearPrefetch();
         if (curUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
 
@@ -3029,7 +2763,6 @@
       setMS(song);
       renderList();
       schedulePlayCount(id);
-      await pushNowPlaying(song);
       updNPActions();
       if (!getMeta(id).albumArtUrl) fetchArtForSong(song).then(() => { updateAllNP(song); setMS(song); });
     }
@@ -3185,44 +2918,6 @@ function setMS(song) {
 
     function _onEnded() {
       if (rep === 2) { aud.currentTime = 0; aud.play(); return; }
-
-      // ── HTML AUDIO GAPLESS fast path — standby element already buffered ──────
-      const nextQi = shuf ? null : (qi + 1) % queue.length;
-      const nextId = nextQi !== null ? queue[nextQi] : null;
-      const sbEl   = _audEls[1 - _activeIdx];
-      if (nextId && _standbyLoaded === nextId && sbEl.src) {
-        const oldEl = aud;
-        _detachAudListeners(oldEl);
-        oldEl.pause();
-        if (curUrl && curUrl !== _standbyUrl) { URL.revokeObjectURL(curUrl); curUrl = null; }
-
-        _activeIdx = 1 - _activeIdx;
-        aud = _audEls[_activeIdx];
-        curUrl = _standbyUrl || null;
-        _standbyLoaded = null; _standbyUrl = null;
-        _prefetchId = null; _prefetchSrc = null; _prefetchUrl = null;
-
-        _attachAudListeners(aud);
-        aud.play().catch(() => {});
-        playing = true;
-
-        qi = nextQi;
-        playingId = nextId;
-        const song = songs.find(s => s.id === nextId);
-        if (song) {
-          aud.volume = rgVolume(song);
-          updateAllNP(song);
-          setMS(song);
-          renderList();
-          schedulePlayCount(nextId);
-          pushNowPlaying(song);
-          updNPActions();
-          if (!getMeta(nextId).albumArtUrl) fetchArtForSong(song).then(() => { updateAllNP(song); setMS(song); });
-        }
-        return;
-      }
-
-      // Fallback: normal async path
       playNext();
     }
     function _onPlay() {
@@ -3230,7 +2925,6 @@ function setMS(song) {
     }
     function _onPause() {
       playing = false; updPBtn(); renderList();
-      if (curSong()) pushNowPlaying(curSong());
     }
     function _onTimeUpdate() {
       if (!aud.duration) return;
@@ -3243,11 +2937,8 @@ function setMS(song) {
       document.getElementById('mob-pf').style.width = p + '%';
       document.getElementById('np-panel-pf').style.width = p + '%';
       document.getElementById('np-panel-cur').textContent = fmt(curTime);
-      if (playing && Date.now() - lastNPPush > 15000 && curSong()) pushNowPlaying(curSong());
       if ('mediaSession' in navigator && navigator.mediaSession.setPositionState)
         try { navigator.mediaSession.setPositionState({ duration: dur, playbackRate: 1, position: curTime }); } catch {}
-      const remaining = dur - curTime;
-      if (!_prefetchId && (remaining < 25 || p > 75)) prefetchNext();
     }
     function _onLoadedMeta() {
       document.getElementById('tt').textContent = fmt(aud.duration);
@@ -3705,8 +3396,9 @@ function setMS(song) {
       list.addEventListener('touchstart', e => {
         const hit = rowOf(e.target); if (!hit) return;
         const { id } = hit;
+        const _t = e.touches[0];
         pressTimer = setTimeout(() => {
-          showCtx(60, window.innerHeight - 260, id);
+          showCtx(_t.clientX, _t.clientY, id);
         }, 500);
       }, { passive: true });
       list.addEventListener('touchend',  () => clearTimeout(pressTimer), { passive: true });
@@ -4559,8 +4251,6 @@ function setMS(song) {
         setSt('loading', 'Connecting…');
         console.log(`[Init] Online — starting sync to ${cfg.url}`);
         syncLib();
-        livePoller = setInterval(pollNowPlaying, 12000);
-        pollNowPlaying();
       } else if (!cfg.url) {
         setSt('err', 'Not configured');
         console.log('[Init] No NAS URL configured — open Settings to set up');
