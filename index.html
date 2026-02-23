@@ -2031,71 +2031,7 @@
     /* ═══════════════════════════════════════════════════
    BULK SELECTION
 ═══════════════════════════════════════════════════ */
-    .sr.bulk-sel {
-      background: var(--sel-bg) !important;
-    }
 
-    .sr.bulk-sel .st {
-      color: var(--accent);
-    }
-
-    #bulk-bar {
-      display: none;
-      align-items: center;
-      gap: 8px;
-      padding: 5px 12px;
-      background: var(--accent-dk);
-      border-bottom: 1px solid var(--accent);
-      font-size: 12px;
-      color: #fff;
-      flex-shrink: 0;
-    }
-
-    #bulk-bar.show {
-      display: flex;
-    }
-
-    #bulk-bar span {
-      font-weight: 500;
-      margin-right: 4px;
-    }
-
-    .bulk-btn {
-      background: rgba(255, 255, 255, .15);
-      border: 1px solid rgba(255, 255, 255, .25);
-      color: #fff;
-      border-radius: 4px;
-      padding: 3px 10px;
-      font-size: 11.5px;
-      cursor: pointer;
-      font-family: 'DM Sans', sans-serif;
-      transition: background .1s;
-    }
-
-    .bulk-btn:hover {
-      background: rgba(255, 255, 255, .28);
-    }
-
-    .bulk-btn.danger {
-      background: rgba(224, 82, 82, .35);
-      border-color: rgba(224, 82, 82, .5);
-    }
-
-    .bulk-btn.danger:hover {
-      background: rgba(224, 82, 82, .55);
-    }
-
-    #bulk-bar .bulk-dismiss {
-      margin-left: auto;
-      cursor: pointer;
-      opacity: .7;
-      font-size: 18px;
-      line-height: 1;
-    }
-
-    #bulk-bar .bulk-dismiss:hover {
-      opacity: 1;
-    }
   </style>
 </head>
 
@@ -2222,15 +2158,7 @@
 
     <!-- MAIN -->
     <div id="main">
-      <!-- Bulk action bar -->
-      <div id="bulk-bar">
-        <span id="bulk-count">0 selected</span>
-        <button class="bulk-btn" id="bulk-star">★ Star</button>
-        <button class="bulk-btn" id="bulk-unstar">★ Unstar</button>
-        <button class="bulk-btn" id="bulk-cache">↓ Cache</button>
-        <button class="bulk-btn" id="bulk-playlist">+ Playlist…</button>
-        <span class="bulk-dismiss" id="bulk-dismiss">×</span>
-      </div>
+
       <!-- Live session banner -->
       <div id="live-banner">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
@@ -3756,23 +3684,6 @@ function setMS(song) {
         const hit = rowOf(e.target); if (!hit) return;
         const { row, id } = hit;
 
-        if (e.shiftKey && bulkMode && lastBulkIdx >= 0) {
-          const allRows = Array.from(list.querySelectorAll('.sr'));
-          const curIdx = allRows.indexOf(row);
-          if (curIdx >= 0) {
-            const lo = Math.min(lastBulkIdx, curIdx), hi = Math.max(lastBulkIdx, curIdx);
-            allRows.slice(lo, hi + 1).forEach(r => { if (r.dataset.id) { bulkSel.add(r.dataset.id); r.classList.add('bulk-sel'); } });
-          }
-          updBulkBar(); return;
-        }
-        if (e.metaKey || e.ctrlKey || bulkMode) {
-          if (bulkSel.has(id)) { bulkSel.delete(id); row.classList.remove('bulk-sel'); }
-          else {
-            bulkSel.add(id); row.classList.add('bulk-sel');
-            lastBulkIdx = Array.from(list.querySelectorAll('.sr')).indexOf(row);
-          }
-          bulkMode = true; updBulkBar(); return;
-        }
         const prev = list.querySelector('.sr.sel');
         if (prev) prev.classList.remove('sel');
         selId = id; row.classList.add('sel');
@@ -3790,16 +3701,12 @@ function setMS(song) {
         e.preventDefault(); showCtx(e.clientX, e.clientY, hit.id);
       });
 
-      // Long-press delegation (mobile)
+      // Long-press delegation (mobile) — opens context menu
       list.addEventListener('touchstart', e => {
         const hit = rowOf(e.target); if (!hit) return;
-        const { row, id } = hit;
+        const { id } = hit;
         pressTimer = setTimeout(() => {
-          if (bulkMode) showCtx(60, window.innerHeight - 260, id);
-          else {
-            enterBulkMode(id); row.classList.add('bulk-sel');
-            lastBulkIdx = Array.from(list.querySelectorAll('.sr')).indexOf(row);
-          }
+          showCtx(60, window.innerHeight - 260, id);
         }, 500);
       }, { passive: true });
       list.addEventListener('touchend',  () => clearTimeout(pressTimer), { passive: true });
@@ -3865,7 +3772,7 @@ function setMS(song) {
         const starred  = isStarred(song.id);
         const m        = getMeta(song.id);
         const row      = document.createElement('div');
-        row.className  = 'sr' + (isNow ? ' now' : '') + (isNow && !playing ? ' paused' : '') + (bulkSel.has(song.id) ? ' bulk-sel' : '');
+        row.className  = 'sr' + (isNow ? ' now' : '') + (isNow && !playing ? ' paused' : '');
         row.dataset.id = song.id;
 
         const starSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="${starred ? HEART_RED : 'none'}" stroke="${starred ? HEART_RED : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
@@ -4339,89 +4246,7 @@ function setMS(song) {
 
 
     // ── BULK SELECTION ────────────────────────────────────────────────────────────
-    let bulkSel = new Set(); // selected song ids
-    let bulkMode = false;
-    let lastBulkIdx = -1; // for shift+click range selection
 
-    function enterBulkMode(id, rowEl) {
-      bulkMode = true;
-      bulkSel.add(id);
-      if (rowEl) lastBulkIdx = Array.from(document.querySelectorAll('#sl .sr')).indexOf(rowEl);
-      updBulkBar();
-    }
-    function exitBulkMode() {
-      bulkMode = false;
-      bulkSel.clear();
-      lastBulkIdx = -1;
-      document.querySelectorAll('.sr.bulk-sel').forEach(r => r.classList.remove('bulk-sel'));
-      document.getElementById('bulk-bar').classList.remove('show');
-    }
-    function updBulkBar() {
-      const bar = document.getElementById('bulk-bar');
-      if (!bulkSel.size) { exitBulkMode(); return; }
-      document.getElementById('bulk-count').textContent = `${bulkSel.size} selected`;
-      bar.classList.add('show');
-      // Highlight selected rows
-      document.querySelectorAll('.sr').forEach(r => {
-        r.classList.toggle('bulk-sel', bulkSel.has(r.dataset.id));
-      });
-    }
-
-    // Bulk action handlers
-    document.getElementById('bulk-dismiss').addEventListener('click', exitBulkMode);
-
-    async function bulkAction(fn) {
-      for (const id of bulkSel) await fn(id);
-      exitBulkMode();
-      renderList(); renderSB();
-    }
-    document.getElementById('bulk-star').addEventListener('click', () =>
-      bulkAction(id => pushMeta({ [id]: { starred: true } })));
-    document.getElementById('bulk-unstar').addEventListener('click', () =>
-      bulkAction(id => pushMeta({ [id]: { starred: false } })));
-    document.getElementById('bulk-cache').addEventListener('click', async () => {
-      const ids = [...bulkSel];
-      exitBulkMode();
-      for (const id of ids) {
-        if (!cachedIds.has(id)) await cacheSong(id);
-      }
-    });
-    document.getElementById('bulk-playlist').addEventListener('click', () => {
-      if (!pls.length) {
-        openModal('New Playlist', 'My Playlist', async name => {
-          await createPl(name);
-          const pl = pls[pls.length - 1];
-          for (const id of bulkSel) await addToPl(pl.id, id);
-          exitBulkMode();
-        });
-        return;
-      }
-      // Show playlist picker in context menu style
-      const bar = document.getElementById('bulk-bar');
-      const rect = bar.getBoundingClientRect();
-      const menu = document.getElementById('ctx');
-      const pi = document.getElementById('ctx-pls'), ps = document.getElementById('ctx-pls-sep');
-      // Temporarily repurpose ctx for playlist picking
-      document.getElementById('ctx-play').style.display = 'none';
-      document.getElementById('ctx-next').style.display = 'none';
-      document.getElementById('ctx-star').style.display = 'none';
-      document.getElementById('ctx-cache').style.display = 'none';
-      document.getElementById('ctx-history').style.display = 'none';
-      document.getElementById('ctx-uncache').style.display = 'none';
-      ps.style.display = 'none';
-      pi.innerHTML = pls.map(pl => `<div class="ci" data-plid="${pl.id}">Add to "${esc(pl.name)}"</div>`).join('');
-      pi.querySelectorAll('.ci').forEach(el => el.addEventListener('click', async () => {
-        for (const id of bulkSel) await addToPl(el.dataset.plid, id);
-        exitBulkMode(); hideCtx();
-        // Restore ctx items
-        ['ctx-play', 'ctx-next', 'ctx-star', 'ctx-cache', 'ctx-history'].forEach(id => {
-          document.getElementById(id).style.display = '';
-        });
-      }));
-      menu.style.left = '12px';
-      menu.style.top = (rect.bottom + 4) + 'px';
-      menu.classList.add('show');
-    });
 
     // ── CONTEXT MENU ──────────────────────────────────────────────────────────────
     function showCtx(x, y, id) {
@@ -4601,7 +4426,7 @@ function setMS(song) {
       if (e.code === 'ArrowLeft' && e.metaKey) playPrev(true);
       if (e.code === 'ArrowRight') aud.currentTime = Math.min(aud.duration || 0, aud.currentTime + 5);
       if (e.code === 'ArrowLeft') aud.currentTime = Math.max(0, aud.currentTime - 5);
-      if (e.key === 'Escape') { if (bulkMode) { exitBulkMode(); renderList(); } else closeNPPanel(); }
+      if (e.key === 'Escape') { closeNPPanel(); }
     });
 
     // ── MOBILE SEARCH (inline in player bar) ─────────────────────────────────────
