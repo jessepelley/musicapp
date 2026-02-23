@@ -2894,7 +2894,6 @@
         songs.filter(s => (s.artist || '') + '|' + (s.album || '') === key)
           .forEach(s => {
             patch[s.id] = { artChecked: true };
-            //if (d.url) patch[s.id].albumArtUrl = apiBase() + '/' + d.url;
             if (d.url) patch[s.id].albumArtUrl = d.url.startsWith('http') ? d.url : apiBase() + '/' + d.url;
           });
         await pushMeta(patch);
