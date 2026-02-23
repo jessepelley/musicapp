@@ -2752,7 +2752,7 @@
         const d = await apost('sign_album', { paths: trackPaths });
         if (!d.token) return null;
         const params = new URLSearchParams({
-          action: 'album_stream', token: d.token, expires: d.expires, format: 'opus'
+          action: 'album_stream', token: d.token, expires: d.expires, format: 'aac'
         });
         trackPaths.forEach(p => params.append('paths[]', p));
         return apiBase() + '/api.php?' + params.toString();
