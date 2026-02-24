@@ -1952,6 +1952,118 @@
    BULK SELECTION
 ═══════════════════════════════════════════════════ */
 
+
+    /* ── CATALOG SEARCH OVERLAY ────────────────────────────────────────────── */
+    #catalog-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 300;
+      flex-direction: column;
+    }
+    #catalog-overlay.open { display: flex; }
+
+    #catalog-search-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #catalog-input {
+      flex: 1;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 15px;
+      font-family: 'DM Sans', sans-serif;
+      padding: 8px 12px;
+      outline: none;
+    }
+    #catalog-input:focus { border-color: var(--accent); }
+    #catalog-cancel {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-size: 13px;
+      cursor: pointer;
+      padding: 4px 2px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #catalog-results {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 20px;
+    }
+    .cr-section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      color: var(--text3);
+      text-transform: uppercase;
+      padding: 14px 14px 6px;
+    }
+    .cr-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background .1s;
+    }
+    .cr-row:hover, .cr-row:active { background: var(--bg3); }
+    .cr-info { flex: 1; min-width: 0; }
+    .cr-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cr-sub   { font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+    .cr-add-btn {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border2);
+      background: none;
+      color: var(--text2);
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color .15s, color .15s, background .15s;
+    }
+    .cr-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .cr-add-btn.in-lib {
+      border-color: var(--green);
+      color: var(--green);
+      background: var(--green-bg);
+    }
+    .cr-empty {
+      text-align: center;
+      color: var(--text3);
+      font-size: 13px;
+      padding: 40px 20px;
+    }
+
+    /* ── MISSING SONG ROW ──────────────────────────────────────────────────── */
+    .sr.missing {
+      opacity: 0.45;
+    }
+    .sr.missing .missing-badge {
+      font-size: 9px;
+      color: var(--red);
+      font-family: 'DM Mono', monospace;
+      letter-spacing: .05em;
+      margin-left: 4px;
+    }
+
+    /* ── CATALOG NAV ITEM ──────────────────────────────────────────────────── */
+    #catalog-search-trigger {
+      width: 100%;
+      margin-top: 4px;
+    }
   </style>
 </head>
 
@@ -2069,6 +2181,12 @@
         Up Next <span class="badge" id="upnext-ct">0</span>
       </div>
       <div id="pl-nav"></div>
+      <button id="catalog-search-trigger" class="tb" style="width:100%;margin-top:4px;justify-content:flex-start;gap:6px;font-size:12px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Browse Catalog
+      </button>
       <button id="new-pl">+ New Playlist</button>
     </div>
 
@@ -2316,9 +2434,26 @@
   </div>
 
   <!-- CONTEXT MENU -->
+  <!-- CATALOG SEARCH OVERLAY -->
+  <div id="catalog-overlay">
+    <div id="catalog-search-bar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2" style="flex-shrink:0">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input id="catalog-input" type="text" placeholder="Search catalog…" autocomplete="off" autocorrect="off" spellcheck="false">
+      <button id="catalog-cancel">Done</button>
+    </div>
+    <div id="catalog-results">
+      <div class="cr-empty">Search songs, artists, and albums</div>
+    </div>
+  </div>
+
   <div id="ctx">
     <div class="ci" id="ctx-play">▶ Play</div>
     <div class="ci" id="ctx-next">Play Next</div>
+    <div class="cs"></div>
+    <div class="ci" id="ctx-lib-add">+ Add to Library</div>
+    <div class="ci danger" id="ctx-lib-remove" style="display:none">Remove from Library</div>
     <div class="cs"></div>
     <div class="ci" id="ctx-star">♡ Love</div>
     <div class="cs"></div>
@@ -2407,6 +2542,7 @@
 
     // ── STATE ─────────────────────────────────────────────────────────────────────
     let songs = [], cachedIds = new Set(), pls = [], queue = [], qi = -1;
+    let userLib = {}; // { [id]: { title, artist, album, added } } — user's personal library
     let playingId = null; // stable ID of the currently playing song — never changes on view switch
     let playing = false, shuf = false, rep = 0;
     let view = 'all', selId = null, ctxId = null, sq = '';
@@ -2541,7 +2677,9 @@
         setSt('ok', `${songs.length} songs`);
         toast(`Synced \u2014 ${songs.length} songs`);
         await pullMeta();
+        await pullUserLib();
         await pullPlaylists();
+        migrateLibIfEmpty();
         stampNewSongs();
         rebuildQ(); renderList(); renderSB();
         console.log(`[Sync] Complete in ${Date.now()-t0}ms`);
@@ -2626,6 +2764,230 @@
       }
     }
 
+    // ── USER LIBRARY ─────────────────────────────────────────────────────────────
+    // userLib is a map of id → snapshot. Songs in the catalog get full data;
+    // songs no longer in catalog are shown from snapshot, flagged as missing.
+
+    function inLib(id) { return Object.prototype.hasOwnProperty.call(userLib, String(id)); }
+
+    function libSong(catalogSong) {
+      // Returns a song object merging catalog data with userLib snapshot.
+      // If the song is in the catalog, catalog data wins. If missing, snapshot only.
+      const id = catalogSong ? catalogSong.id : null;
+      if (catalogSong) return catalogSong; // catalog always authoritative
+      return null;
+    }
+
+    // Returns the working song list: catalog songs filtered to userLib membership,
+    // plus any missing songs (in userLib but absent from catalog) as ghost entries.
+    function libSongs() {
+      if (!Object.keys(userLib).length) return songs; // empty lib = show everything (first run)
+      const catalogMap = new Map(songs.map(s => [String(s.id), s]));
+      const result = [];
+      for (const [id, snap] of Object.entries(userLib)) {
+        if (catalogMap.has(id)) {
+          result.push(catalogMap.get(id));
+        } else {
+          // Song missing from catalog — create ghost entry from snapshot
+          result.push({
+            id, title: snap.title || '?', artist: snap.artist || '?',
+            album: snap.album || '', duration: 0, _missing: true,
+          });
+        }
+      }
+      return result;
+    }
+
+    async function addToLib(id) {
+      const song = songs.find(s => String(s.id) === String(id));
+      if (!song) return;
+      userLib[String(id)] = { title: song.title, artist: song.artist, album: song.album, added: Date.now() };
+      await pushUserLib();
+      renderList(); renderSB(); updCounts();
+    }
+
+    async function removeFromLib(id) {
+      delete userLib[String(id)];
+      await pushUserLib();
+      renderList(); renderSB(); updCounts();
+    }
+
+    async function pullUserLib() {
+      if (!cfg.url || !cfg.apiKey || !online) {
+        try { const l = localStorage.getItem('jb-userlib'); if (l) userLib = JSON.parse(l); } catch { }
+        return;
+      }
+      try {
+        const d = await afetch('get_userlib');
+        userLib = d.ids || {};
+        try { localStorage.setItem('jb-userlib', JSON.stringify(userLib)); } catch { }
+      } catch {
+        try { const l = localStorage.getItem('jb-userlib'); if (l) userLib = JSON.parse(l); } catch { }
+      }
+    }
+
+    async function pushUserLib() {
+      try { localStorage.setItem('jb-userlib', JSON.stringify(userLib)); } catch { }
+      if (!cfg.url || !cfg.apiKey || !online) return;
+      try { await apost('save_userlib', { ids: userLib }); } catch (e) { console.warn('userlib push fail', e); }
+    }
+
+    // On first sync: if userLib is empty, auto-populate from full catalog
+    // so existing users don't lose their library.
+    function migrateLibIfEmpty() {
+      if (Object.keys(userLib).length > 0 || songs.length === 0) return;
+      console.log('[Library] Empty userLib — migrating full catalog as library');
+      songs.forEach(s => {
+        userLib[String(s.id)] = { title: s.title, artist: s.artist, album: s.album, added: Date.now() };
+      });
+      pushUserLib();
+    }
+
+    // ── CATALOG SEARCH ────────────────────────────────────────────────────────────
+    let catalogOpen = false;
+
+    function openCatalog() {
+      catalogOpen = true;
+      document.getElementById('catalog-overlay').classList.add('open');
+      setTimeout(() => document.getElementById('catalog-input').focus(), 60);
+    }
+    function closeCatalog() {
+      catalogOpen = false;
+      document.getElementById('catalog-overlay').classList.remove('open');
+      document.getElementById('catalog-input').value = '';
+      document.getElementById('catalog-results').innerHTML = '<div class="cr-empty">Search songs, artists, and albums</div>';
+    }
+
+    function renderCatalogResults(q) {
+      const el = document.getElementById('catalog-results');
+      if (!q.trim()) {
+        el.innerHTML = '<div class="cr-empty">Search songs, artists, and albums</div>';
+        return;
+      }
+      const lq = q.toLowerCase();
+      const matched = songs.filter(s =>
+        (s.title  || '').toLowerCase().includes(lq) ||
+        (s.artist || '').toLowerCase().includes(lq) ||
+        (s.album  || '').toLowerCase().includes(lq)
+      );
+
+      if (!matched.length) {
+        el.innerHTML = '<div class="cr-empty">No results</div>';
+        return;
+      }
+
+      // Group by: exact title matches → artist matches → album matches
+      const titleMatches  = matched.filter(s => (s.title  || '').toLowerCase().includes(lq));
+      const artistMatches = matched.filter(s => (s.artist || '').toLowerCase().includes(lq) && !(s.title || '').toLowerCase().includes(lq));
+      const albumMatches  = matched.filter(s => (s.album  || '').toLowerCase().includes(lq) && !(s.title || '').toLowerCase().includes(lq) && !(s.artist || '').toLowerCase().includes(lq));
+
+      // Deduplicate artists and albums
+      const seenArtists = new Set(), seenAlbums = new Set();
+      const artistRows = [], albumRows = [];
+      artistMatches.forEach(s => { if (!seenArtists.has(s.artist)) { seenArtists.add(s.artist); artistRows.push(s); } });
+      albumMatches.forEach(s => {
+        const key = s.album + '|' + (s.album_artist || s.artist);
+        if (!seenAlbums.has(key)) { seenAlbums.add(key); albumRows.push(s); }
+      });
+
+      const frag = document.createDocumentFragment();
+
+      function mkSection(label, items, mode) {
+        if (!items.length) return;
+        const lbl = document.createElement('div');
+        lbl.className = 'cr-section-label';
+        lbl.textContent = label;
+        frag.appendChild(lbl);
+
+        items.slice(0, 20).forEach(s => {
+          const row = document.createElement('div');
+          row.className = 'cr-row';
+
+          let titleText, subText;
+          if (mode === 'artist') {
+            titleText = s.artist;
+            const byArtist = songs.filter(x => x.artist === s.artist);
+            subText = `${byArtist.length} song${byArtist.length !== 1 ? 's' : ''}`;
+          } else if (mode === 'album') {
+            titleText = s.album;
+            subText = s.album_artist || s.artist;
+          } else {
+            titleText = s.title;
+            subText = [s.artist, s.album].filter(Boolean).join(' — ');
+          }
+
+          const allSongIds = mode === 'artist'
+            ? songs.filter(x => x.artist === s.artist).map(x => x.id)
+            : mode === 'album'
+              ? songs.filter(x => x.album === s.album && (x.album_artist || x.artist) === (s.album_artist || s.artist)).map(x => x.id)
+              : [s.id];
+
+          const allInLib = allSongIds.every(id => inLib(id));
+
+          row.innerHTML = `
+            <div class="cr-info">
+              <div class="cr-title">${esc(titleText)}</div>
+              <div class="cr-sub">${esc(subText)}</div>
+            </div>
+            <button class="cr-add-btn ${allInLib ? 'in-lib' : ''}" title="${allInLib ? 'In Library' : 'Add to Library'}">
+              ${allInLib ? CHECK_SVG : '+'}
+            </button>`;
+
+          // Click row → play song / filter to artist / filter to album
+          row.querySelector('.cr-info').addEventListener('click', () => {
+            if (mode === 'song') {
+              closeCatalog(); playSong(s.id, true, true);
+            } else if (mode === 'artist') {
+              closeCatalog(); goToArtist(s.artist);
+            } else {
+              closeCatalog(); goToAlbum(s.album, s.album_artist || s.artist);
+            }
+          });
+
+          // Add/remove library button
+          const addBtn = row.querySelector('.cr-add-btn');
+          addBtn.addEventListener('click', async e => {
+            e.stopPropagation();
+            if (allInLib) {
+              // Remove all matching songs
+              for (const id of allSongIds) { delete userLib[String(id)]; }
+              await pushUserLib();
+              renderList(); renderSB(); updCounts();
+              addBtn.classList.remove('in-lib');
+              addBtn.innerHTML = '+';
+              addBtn.title = 'Add to Library';
+            } else {
+              for (const id of allSongIds) {
+                const song = songs.find(x => String(x.id) === String(id));
+                if (song) userLib[String(id)] = { title: song.title, artist: song.artist, album: song.album, added: Date.now() };
+              }
+              await pushUserLib();
+              renderList(); renderSB(); updCounts();
+              addBtn.classList.add('in-lib');
+              addBtn.innerHTML = CHECK_SVG;
+              addBtn.title = 'In Library';
+            }
+          });
+
+          frag.appendChild(row);
+        });
+      }
+
+      mkSection('Songs', titleMatches, 'song');
+      mkSection('Artists', artistRows, 'artist');
+      mkSection('Albums', albumRows, 'album');
+
+      el.innerHTML = '';
+      el.appendChild(frag);
+    }
+
+    document.getElementById('catalog-search-trigger').addEventListener('click', () => { openCatalog(); closeSidebar(); });
+    document.getElementById('catalog-cancel').addEventListener('click', closeCatalog);
+    document.getElementById('catalog-input').addEventListener('input', e => {
+      renderCatalogResults(e.target.value);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
     // iTunes rule: log a play after 20s OR half the track duration, whichever is less.
     // Timer is cancelled if the song changes before threshold is reached.
     let _playCountTimer = null;
@@ -2723,7 +3085,7 @@
         const cached = await iget('blobs', id);
         if (cached?.blob) {
           curUrl = URL.createObjectURL(cached.blob); src = curUrl;
-          setBadge('', '● OFFLINE');
+          setBadge('', '● OFFLINE', song);
         } else if (online && cfg.url) {
           // ── ALBUM STREAM: merge remaining tracks server-side for gapless iOS playback ──
           // Only applies when playing albums in order (not shuffled, not cached locally).
@@ -2739,14 +3101,14 @@
                 const albumSrc = await albumStreamUrl(remaining.map(s => s.path));
                 if (albumSrc) {
                   src = albumSrc;
-                  setBadge('stream', '⋯ ALBUM');
+                  setBadge('stream', '⋯ ALBUM', song);
                   usedAlbumStream = true;
                 }
               }
             } catch { /* fall through to normal stream */ }
           }
           if (!usedAlbumStream) {
-            try { src = await streamUrl(song); setBadge('stream', '⋯ STREAMING'); }
+            try { src = await streamUrl(song); setBadge('stream', '⋯ STREAMING', song); }
             catch { toast('Stream failed'); return; }
           }
         } else { toast('Not cached & offline'); return; }
@@ -2809,10 +3171,17 @@
       updPBtn();
     }
 
-    function setBadge(cls, txt) {
+    function setBadge(cls, txt, song) {
       const el = document.getElementById('np-badge');
       el.classList.remove('hidden', 'stream');
-      document.getElementById('np-btxt').textContent = txt;
+      let label = txt;
+      if (song) {
+        const parts = [];
+        if (song.codec) parts.push(song.codec.toUpperCase());
+        if (song.bitrate && song.bitrate > 0) parts.push(Math.round(song.bitrate / 1000) + 'k');
+        if (parts.length) label += '  ' + parts.join(' ');
+      }
+      document.getElementById('np-btxt').textContent = label;
       if (cls) el.classList.add(cls);
     }
 
@@ -3015,14 +3384,15 @@ function setMS(song) {
     }
     document.getElementById('reset-cache-btn').addEventListener('click', resetCache);
     function updCounts() {
+      const lib = libSongs();
+      const nonMissing = lib.filter(s => !s._missing);
       document.getElementById('cache-ct').textContent = cachedIds.size;
-      document.getElementById('lib-ct').textContent = songs.length;
+      document.getElementById('lib-ct').textContent = nonMissing.length;
       document.getElementById('upnext-ct').textContent = queue.length;
-      // Albums and singles counts
-      if (songs.length) {
+      if (nonMissing.length) {
         const ids = getCompleteAlbumIds();
-        document.getElementById('albums-ct').textContent = ids.size;
-        document.getElementById('singles-ct').textContent = songs.length - ids.size;
+        document.getElementById('albums-ct').textContent = nonMissing.filter(s => ids.has(s.id)).length;
+        document.getElementById('singles-ct').textContent = nonMissing.filter(s => !ids.has(s.id)).length;
       }
     }
 
@@ -3168,17 +3538,18 @@ function setMS(song) {
       const col = sortCol(), dir = sortDir();
       let s;
       const now = Date.now();
+      const lib = libSongs(); // user's library (catalog filtered to userLib membership)
 
       if (view === 'upnext') {
         // Show current queue in order from current position
         const allQ = queue.map(id => songs.find(x => x.id === id)).filter(Boolean);
         return allQ; // no search filter, no re-sort
       }
-      if (view === 'cached') s = songs.filter(x => cachedIds.has(x.id));
-      else if (view === 'all') s = [...songs];
+      if (view === 'cached') s = lib.filter(x => cachedIds.has(x.id));
+      else if (view === 'all') s = [...lib];
       else if (view === 'albums') {
         const ids = getCompleteAlbumIds();
-        s = songs.filter(x => ids.has(x.id));
+        s = lib.filter(x => ids.has(x.id));
         // Always sort albums view by artist → album → disc → track regardless of user sort
         s.sort((a, b) => {
           const ga = _groupArtist(a), gb = _groupArtist(b);
@@ -3193,7 +3564,7 @@ function setMS(song) {
       }
       else if (view === 'singles') {
         const ids = getCompleteAlbumIds();
-        s = songs.filter(x => !ids.has(x.id));
+        s = lib.filter(x => !ids.has(x.id));
         // Sort singles by artist → album → track
         s.sort((a, b) => {
           const ga = _groupArtist(a), gb = _groupArtist(b);
@@ -3205,15 +3576,15 @@ function setMS(song) {
         if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title||'').toLowerCase().includes(q)||(x.artist||'').toLowerCase().includes(q)||(x.album||'').toLowerCase().includes(q)); }
         return s;
       }
-      else if (view === 'starred') s = songs.filter(x => isStarred(x.id));
-      else if (view === 'never-played') s = songs.filter(x => !playCount(x.id));
-      else if (view === 'most-played') s = [...songs].filter(x => playCount(x.id) > 0);
-      else if (view === 'recently-played') s = [...songs].filter(x => lastPlayed(x.id) > 0);
+      else if (view === 'starred') s = lib.filter(x => isStarred(x.id));
+      else if (view === 'never-played') s = lib.filter(x => !playCount(x.id));
+      else if (view === 'most-played') s = [...lib].filter(x => playCount(x.id) > 0);
+      else if (view === 'recently-played') s = [...lib].filter(x => lastPlayed(x.id) > 0);
       else if (view === 'recently-added') {
         const cutoff = now - (30 * 24 * 60 * 60 * 1000);
-        s = [...songs].filter(x => (getMeta(x.id).dateAdded || 0) > cutoff);
+        s = [...lib].filter(x => (getMeta(x.id).dateAdded || 0) > cutoff);
       }
-      else if (view === 'most-skipped') s = [...songs].filter(x => skipCount(x.id) > 0);
+      else if (view === 'most-skipped') s = [...lib].filter(x => skipCount(x.id) > 0);
       else {
         // Playlist — preserve playlist order, no sort applied
         const pl = pls.find(p => String(p.id) === String(view));
@@ -3464,7 +3835,7 @@ function setMS(song) {
         const starred  = isStarred(song.id);
         const m        = getMeta(song.id);
         const row      = document.createElement('div');
-        row.className  = 'sr' + (isNow ? ' now' : '') + (isNow && !playing ? ' paused' : '');
+        row.className  = 'sr' + (isNow ? ' now' : '') + (isNow && !playing ? ' paused' : '') + (song._missing ? ' missing' : '');
         row.dataset.id = song.id;
 
         const starSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="${starred ? HEART_RED : 'none'}" stroke="${starred ? HEART_RED : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
@@ -3725,13 +4096,14 @@ function setMS(song) {
       smartLabel.textContent = 'Smart Views';
       nav.appendChild(smartLabel);
       const now = Date.now();
-      const starCount = songs.filter(s => isStarred(s.id)).length;
-      const neverCount = songs.filter(s => !playCount(s.id)).length;
+      const lib = libSongs().filter(s => !s._missing);
+      const starCount = lib.filter(s => isStarred(s.id)).length;
+      const neverCount = lib.filter(s => !playCount(s.id)).length;
       const recentCutoff = now - (30 * 24 * 60 * 60 * 1000);
-      const recentCount = songs.filter(s => (getMeta(s.id).dateAdded || 0) > recentCutoff).length;
-      const recentPlayedCount = songs.filter(s => lastPlayed(s.id) > 0).length;
-      const mostPlayedCount = songs.filter(s => playCount(s.id) > 0).length;
-      const mostSkippedCount = songs.filter(s => skipCount(s.id) > 0).length;
+      const recentCount = lib.filter(s => (getMeta(s.id).dateAdded || 0) > recentCutoff).length;
+      const recentPlayedCount = lib.filter(s => lastPlayed(s.id) > 0).length;
+      const mostPlayedCount = lib.filter(s => playCount(s.id) > 0).length;
+      const mostSkippedCount = lib.filter(s => skipCount(s.id) > 0).length;
 
       function mkSVG(path) { return `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${path}</svg>`; }
       function mkSmartView(id, label, icoHtml, badge) {
@@ -3950,6 +4322,9 @@ function setMS(song) {
       document.getElementById('ctx-cache').textContent = isCached ? '✓ Cached (remove)' : '↓ Cache for Offline';
       document.getElementById('ctx-uncache').style.display = isCached ? '' : 'none';
       document.getElementById('ctx-star').textContent = starred ? '♥ Unlove' : '♡ Love';
+      const inLibrary = inLib(id);
+      document.getElementById('ctx-lib-add').style.display = inLibrary ? 'none' : '';
+      document.getElementById('ctx-lib-remove').style.display = inLibrary ? '' : 'none';
       // Play history info
       const pc = playCount(id), lp = lastPlayed(id), sc = skipCount(id);
       const playStr = pc ? `Played ${pc}×` : 'Never played';
@@ -3998,6 +4373,8 @@ function setMS(song) {
       }
       hideCtx();
     });
+    document.getElementById('ctx-lib-add').addEventListener('click', () => { if (ctxId) { addToLib(ctxId); } hideCtx(); });
+    document.getElementById('ctx-lib-remove').addEventListener('click', () => { if (ctxId) { removeFromLib(ctxId); } hideCtx(); });
     document.getElementById('ctx-star').addEventListener('click', () => { if (ctxId) toggleStar(ctxId); hideCtx(); });
     document.getElementById('ctx-cache').addEventListener('click', () => { if (ctxId) { cachedIds.has(ctxId) ? uncache(ctxId) : cacheSong(ctxId); } hideCtx(); });
     document.getElementById('ctx-cache-view').addEventListener('click', () => { cacheView(); hideCtx(); });
@@ -4243,6 +4620,7 @@ function setMS(song) {
       console.log(`[Init] IndexedDB ready — ${cachedIds.size} songs cached offline`);
       try { const m = localStorage.getItem('jb-manifest'); if (m) { songs = JSON.parse(m); console.log(`[Init] Loaded ${songs.length} songs from localStorage manifest`); setSt('', 'Cached manifest'); } } catch { }
       try { const l = localStorage.getItem('jb-meta'); if (l) { songMeta = JSON.parse(l); console.log(`[Init] Loaded meta for ${Object.keys(songMeta).length} songs from localStorage`); } } catch { }
+      try { const l = localStorage.getItem('jb-userlib'); if (l) { userLib = JSON.parse(l); } } catch { }
       await pullPlaylists();
       rebuildQ(); renderList(); renderSB();
       document.getElementById('vf').style.width = (aud.volume * 100) + '%';
