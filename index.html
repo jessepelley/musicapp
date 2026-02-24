@@ -2059,11 +2059,6 @@
       margin-left: 4px;
     }
 
-    /* ── CATALOG NAV ITEM ──────────────────────────────────────────────────── */
-    #catalog-search-trigger {
-      width: 100%;
-      margin-top: 4px;
-    }
   </style>
 </head>
 
@@ -2181,12 +2176,6 @@
         Up Next <span class="badge" id="upnext-ct">0</span>
       </div>
       <div id="pl-nav"></div>
-      <button id="catalog-search-trigger" class="tb" style="width:100%;margin-top:4px;justify-content:flex-start;gap:6px;font-size:12px">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        Browse Catalog
-      </button>
       <button id="new-pl">+ New Playlist</button>
     </div>
 
@@ -2546,6 +2535,31 @@
     let playingId = null; // stable ID of the currently playing song — never changes on view switch
     let playing = false, shuf = false, rep = 0;
     let view = 'all', selId = null, ctxId = null, sq = '';
+    // sq can be plain text or prefixed: "album:foo" "artist:foo" "genre:foo" "year:2020"
+    // parseSq returns {field:'', value:''} — field='' means search all fields
+    function parseSq(raw) {
+      if (!raw) return { field: '', value: '' };
+      const m = raw.match(/^(title|artist|album|genre|year|composer|bpm|isrc):(.*)$/i);
+      if (m) return { field: m[1].toLowerCase(), value: m[2].trim().toLowerCase() };
+      return { field: '', value: raw.toLowerCase() };
+    }
+    function sqMatch(song, raw) {
+      if (!raw) return true;
+      const { field, value } = parseSq(raw);
+      if (!value) return true;
+      if (field === 'title')    return (song.title    || '').toLowerCase().includes(value);
+      if (field === 'artist')   return (song.artist   || '').toLowerCase().includes(value);
+      if (field === 'album')    return (song.album    || '').toLowerCase().includes(value);
+      if (field === 'genre')    return (song.genre    || '').toLowerCase().includes(value);
+      if (field === 'year')     return String(song.year || '').startsWith(value);
+      if (field === 'composer') return (song.composer || '').toLowerCase().includes(value);
+      if (field === 'bpm')      return String(song.bpm || '').startsWith(value);
+      if (field === 'isrc')     return (song.isrc     || '').toLowerCase().includes(value);
+      // plain text — all fields
+      return (song.title  || '').toLowerCase().includes(value)
+          || (song.artist || '').toLowerCase().includes(value)
+          || (song.album  || '').toLowerCase().includes(value);
+    }
     // Per-view sort state: each view remembers its own sort col/dir
     // Default sort cols per view (overridable by clicking headers)
     const VIEW_DEFAULTS = {
@@ -2655,7 +2669,7 @@
         const d = await apost('sign_album', { paths: trackPaths });
         if (!d.token) return null;
         const params = new URLSearchParams({
-          action: 'album_stream', token: d.token, expires: d.expires, format: 'aac'
+          action: 'album_stream', token: d.token, expires: d.expires, format: 'mp3'
         });
         trackPaths.forEach(p => params.append('paths[]', p));
         return apiBase() + '/api.php?' + params.toString();
@@ -2969,7 +2983,6 @@
       el.appendChild(frag);
     }
 
-    document.getElementById('catalog-search-trigger').addEventListener('click', () => { openCatalog(); closeSidebar(); });
     document.getElementById('catalog-cancel').addEventListener('click', closeCatalog);
     document.getElementById('catalog-input').addEventListener('input', e => {
       renderCatalogResults(e.target.value);
@@ -3136,15 +3149,25 @@
       } else {
         artWrap.style.display = 'none';
       }
-      // Mobile strip art — always shown; placeholder when no real artwork
+      // Mobile strip art — fixed 42×42 square always; placeholder until real art loads
       const mobArt = document.getElementById('mob-art');
-      mobArt.style.display = 'flex';
+      mobArt.style.cssText = 'display:flex;width:42px;height:42px;flex-shrink:0;align-items:center;justify-content:center;border-radius:6px;overflow:hidden;background:var(--bg3)';
       if (m.albumArtUrl) {
-        mobArt.innerHTML = `<img src="${m.albumArtUrl}" style="width:42px;height:42px;border-radius:6px;object-fit:cover;display:block" onerror="this.parentNode.innerHTML='<svg width=18 height=18 viewBox=&quot;0 0 24 24&quot; fill=none stroke=currentColor stroke-width=1.5 style=opacity:.35><path d=&quot;M9 18V5l12-2v13&quot;/><circle cx=6 cy=18 r=3/><circle cx=18 cy=16 r=3/></svg>'">`;
+        const ICON_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.35"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+        mobArt.innerHTML = ICON_SVG; // placeholder first — no layout shift
+        const img = new Image();
+        img.onload = () => {
+          mobArt.innerHTML = '';
+          mobArt.style.background = 'none';
+          img.style.cssText = 'width:42px;height:42px;object-fit:cover;display:block;border-radius:6px';
+          mobArt.appendChild(img);
+        };
+        img.onerror = () => { /* keep placeholder svg */ };
+        img.src = m.albumArtUrl;
       } else {
         mobArt.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.35"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
       }
-      // Mobile full-screen panel art
+            // Mobile full-screen panel art
       const panelArt = document.getElementById('np-panel-art');
       if (m.albumArtUrl) {
         const img = document.createElement('img');
@@ -3287,14 +3310,15 @@ function setMS(song) {
       if (!aud.duration) return;
       const curTime = aud.currentTime;
       const dur     = aud.duration;
-      const p = (curTime / dur) * 100;
+      const finite  = isFinite(dur) && dur > 0;
+      const p = finite ? (curTime / dur) * 100 : 0;
       document.getElementById('pf').style.width = p + '%';
       document.getElementById('pt').style.left = p + '%';
       document.getElementById('tc').textContent = fmt(curTime);
       document.getElementById('mob-pf').style.width = p + '%';
       document.getElementById('np-panel-pf').style.width = p + '%';
       document.getElementById('np-panel-cur').textContent = fmt(curTime);
-      if ('mediaSession' in navigator && navigator.mediaSession.setPositionState)
+      if (finite && 'mediaSession' in navigator && navigator.mediaSession.setPositionState)
         try { navigator.mediaSession.setPositionState({ duration: dur, playbackRate: 1, position: curTime }); } catch {}
     }
     function _onLoadedMeta() {
@@ -3319,7 +3343,7 @@ function setMS(song) {
     // Attach listeners to the initial active element
     _attachAudListeners(aud);
 
-    function fmt(s) { if (!s || isNaN(s)) return '0:00'; return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }
+    function fmt(s) { if (!s || isNaN(s) || !isFinite(s)) return '—:——'; return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }
     function fmtDate(ts) { if (!ts) return ''; const d = new Date(ts); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
 
     // ── CACHING ───────────────────────────────────────────────────────────────────
@@ -3547,7 +3571,7 @@ function setMS(song) {
           if ((a.disc || 1) !== (b.disc || 1)) return (a.disc || 1) - (b.disc || 1);
           return (a.track || 0) - (b.track || 0);
         });
-        if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title||'').toLowerCase().includes(q)||(x.artist||'').toLowerCase().includes(q)||(x.album||'').toLowerCase().includes(q)); }
+        if (sq) s = s.filter(x => sqMatch(x, sq));
         return s;
       }
       else if (view === 'singles') {
@@ -3561,7 +3585,7 @@ function setMS(song) {
           if (al !== bl) return al < bl ? -1 : 1;
           return (a.track || 0) - (b.track || 0);
         });
-        if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title||'').toLowerCase().includes(q)||(x.artist||'').toLowerCase().includes(q)||(x.album||'').toLowerCase().includes(q)); }
+        if (sq) s = s.filter(x => sqMatch(x, sq));
         return s;
       }
       else if (view === 'starred') s = lib.filter(x => isStarred(x.id));
@@ -3577,11 +3601,11 @@ function setMS(song) {
         // Playlist — preserve playlist order, no sort applied
         const pl = pls.find(p => String(p.id) === String(view));
         s = pl ? (pl.sids || []).map(sid => songs.find(x => String(x.id) === String(sid))).filter(Boolean) : [];
-        if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title || '').toLowerCase().includes(q) || (x.artist || '').toLowerCase().includes(q) || (x.album || '').toLowerCase().includes(q)); }
+        if (sq) s = s.filter(x => sqMatch(x, sq));
         return s; // return without applying sort — playlist order is manual
       }
 
-      if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title || '').toLowerCase().includes(q) || (x.artist || '').toLowerCase().includes(q) || (x.album || '').toLowerCase().includes(q)); }
+      if (sq) s = s.filter(x => sqMatch(x, sq));
       return applySort(s, col, dir);
     }
     function rebuildQ() {
@@ -4064,7 +4088,25 @@ function setMS(song) {
           frag.appendChild(row);
         }
       });
+      // When search is active, append a "Browse Catalog" row at the bottom
+      if (sq) {
+        const term = sq.replace(/^(title|artist|album|genre|year|composer|bpm|isrc):/i, '');
+        const browseRow = document.createElement('div');
+        browseRow.style.cssText = 'padding:12px 16px;text-align:center;border-top:1px solid var(--border)';
+        browseRow.innerHTML = `<button id="search-browse-catalog" style="background:none;border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:12px;padding:7px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Browse full catalog for &ldquo;${esc(term)}&rdquo;</button>`;
+        frag.appendChild(browseRow);
+      }
       list.innerHTML = ''; list.appendChild(frag);
+      // Wire the browse button after DOM insertion
+      if (sq) {
+        const btn = document.getElementById('search-browse-catalog');
+        if (btn) btn.addEventListener('click', () => {
+          const term = sq.replace(/^(title|artist|album|genre|year|composer|bpm|isrc):/i, '');
+          document.getElementById('catalog-input').value = term;
+          openCatalog();
+          renderCatalogResults(term);
+        });
+      }
       updateStatusBar(s);
       updateUpNextBar();
     }
@@ -4404,23 +4446,21 @@ function setMS(song) {
     document.addEventListener('click', e => { if (!e.target.closest('#pl-ctx')) hidePlCtx(); });
     function goToArtist(artist) {
       if (!artist) return;
-      // Switch to Songs view, set search to artist name
       view = 'all';
       document.querySelectorAll('.ni').forEach(el => el.classList.toggle('active', el.dataset.view === 'all'));
-      sq = artist;
+      sq = 'artist:' + artist;
       const searchEl = document.getElementById('search');
-      if (searchEl) searchEl.value = artist;
+      if (searchEl) searchEl.value = sq;
       renderList(); renderSB();
       toast(`Showing songs by ${artist}`);
     }
     function goToAlbum(album, artist) {
       if (!album) return;
-      // Switch to Songs view, filter by album (use "Album - Artist" to be specific if needed)
       view = 'all';
       document.querySelectorAll('.ni').forEach(el => el.classList.toggle('active', el.dataset.view === 'all'));
-      sq = album;
+      sq = 'album:' + album;
       const searchEl = document.getElementById('search');
-      if (searchEl) searchEl.value = album;
+      if (searchEl) searchEl.value = sq;
       renderList(); renderSB();
       toast(`Showing album: ${album}`);
     }
