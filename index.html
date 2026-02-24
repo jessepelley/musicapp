@@ -2679,7 +2679,6 @@
         await pullMeta();
         await pullUserLib();
         await pullPlaylists();
-        migrateLibIfEmpty();
         stampNewSongs();
         rebuildQ(); renderList(); renderSB();
         console.log(`[Sync] Complete in ${Date.now()-t0}ms`);
@@ -2830,17 +2829,6 @@
       try { localStorage.setItem('jb-userlib', JSON.stringify(userLib)); } catch { }
       if (!cfg.url || !cfg.apiKey || !online) return;
       try { await apost('save_userlib', { ids: userLib }); } catch (e) { console.warn('userlib push fail', e); }
-    }
-
-    // On first sync: if userLib is empty, auto-populate from full catalog
-    // so existing users don't lose their library.
-    function migrateLibIfEmpty() {
-      if (Object.keys(userLib).length > 0 || songs.length === 0) return;
-      console.log('[Library] Empty userLib — migrating full catalog as library');
-      songs.forEach(s => {
-        userLib[String(s.id)] = { title: s.title, artist: s.artist, album: s.album, added: Date.now() };
-      });
-      pushUserLib();
     }
 
     // ── CATALOG SEARCH ────────────────────────────────────────────────────────────
@@ -3803,7 +3791,7 @@ function setMS(song) {
         list.innerHTML = '';
         const EMPTY_STATES = {
           'no-lib-cfg':     ["Connect to your NAS", "Configure NAS URL and API key in Settings, then hit Sync."],
-          'no-lib':         ["Library empty", "Hit Sync to fetch music from your NAS."],
+          'no-lib':         ["Your library is empty", "Use Browse Catalog to find and add music to your library."],
           'starred':        ["No loved songs", "Tap the heart on any song to mark it as loved."],
           'cached':         ["No cached songs", "Tap the download icon on any song to cache it."],
           'upnext':         ["Nothing queued", "Start playing a song to build the queue."],
@@ -3813,9 +3801,11 @@ function setMS(song) {
           'recently-added': ["Nothing added recently", "Songs added in the last 30 days will appear here."],
           'most-skipped':   ["No skipped songs yet", "Songs you skip will appear here."],
           'default':        ["No results", "Nothing matched your search."],
+          'empty-lib':      ["Your library is empty", "Use Browse Catalog in the sidebar to add music."],
         };
         const ekey = !songs.length && !cfg.url ? 'no-lib-cfg'
           : !songs.length ? 'no-lib'
+          : songs.length && !Object.keys(userLib).length ? 'empty-lib'
             : (EMPTY_STATES[view] ? view : 'default');
         const [etitle, edesc] = EMPTY_STATES[ekey];
         document.getElementById('empty-h').textContent = etitle;
