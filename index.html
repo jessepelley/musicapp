@@ -3105,7 +3105,7 @@
         const cached = await iget('blobs', id);
         if (cached?.blob) {
           curUrl = URL.createObjectURL(cached.blob); src = curUrl;
-          setBadge('', '● OFFLINE', song);
+          setBadge('', '● CACHED', song);
         } else if (online && cfg.url) {
           // ── ALBUM STREAM: merge remaining tracks server-side for gapless iOS playback ──
           // Only applies when gapless mode is enabled and tracks are not shuffled.
