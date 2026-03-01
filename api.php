@@ -403,15 +403,12 @@ function handleSignAlbum() {
 //   paths[]        — ordered list of relative song paths (URL-encoded)
 //   format         — "aac" (default), "opus", or "mp3"
 //
-// For MP3 inputs we use CBR + Accept-Ranges: bytes so that if Synology's nginx
-// drops the connection mid-stream (timeout/buffer limit), Safari's retry Range
-// request can seek ffmpeg to the correct album position instead of restarting
-// from track 1. For AAC/M4A we keep Accept-Ranges: none (fragmented MP4 byte
-// offsets don't map linearly to timestamps).
+// Streams all album tracks as one continuous audio file via ffmpeg concat.
+// ?seek=SECONDS lets the JS layer reconnect mid-album after a dropped connection
+// without restarting from track 1.  Accept-Ranges: none prevents Safari from
+// issuing parallel probe/range requests that would spawn extra PHP processes.
 function handleAlbumStream() {
-    // Allow this script to run as long as the album takes to stream
     set_time_limit(0);
-    // Stop ffmpeg if client disconnects (saves CPU)
     ignore_user_abort(false);
 
     $token   = isset($_GET['token'])   ? $_GET['token']   : '';
@@ -443,29 +440,12 @@ function handleAlbumStream() {
         $fullPaths[] = $full;
     }
 
-    // Find ffmpeg
-    static $ffmpeg = null;
-    if ($ffmpeg === null) {
-        $ffmpeg = false;
-        foreach (['/volume1/music/ffmpeg/ffmpeg','/usr/local/bin/ffmpeg','/usr/bin/ffmpeg','/opt/ffmpeg/bin/ffmpeg','/opt/bin/ffmpeg','/bin/ffmpeg'] as $c) {
-            if (@is_executable($c)) { $ffmpeg = $c; break; }
-        }
-        if (!$ffmpeg) {
-            $w = @shell_exec('which ffmpeg 2>/dev/null');
-            if ($w) $ffmpeg = trim($w);
-        }
-    }
-    if (!$ffmpeg) { http_response_code(500); echo 'ffmpeg not available'; exit; }
+    $ffmpeg = '/volume1/music/ffmpeg/ffmpeg';
+    if (!@is_executable($ffmpeg)) { http_response_code(500); echo 'ffmpeg not available'; exit; }
 
-    // Find ffprobe (used on the MP3 path to sum track durations for Content-Length)
-    static $ffprobe = null;
-    if ($ffprobe === null) {
-        $ffprobe = false;
-        foreach (['/volume1/music/ffmpeg/ffprobe','/usr/local/bin/ffprobe','/usr/bin/ffprobe','/opt/ffmpeg/bin/ffprobe','/opt/bin/ffprobe','/bin/ffprobe'] as $c) {
-            if (@is_executable($c)) { $ffprobe = $c; break; }
-        }
-        if (!$ffprobe) { $w = @shell_exec('which ffprobe 2>/dev/null'); if ($w) $ffprobe = trim($w); }
-    }
+    // Optional seek offset in seconds — set by the JS layer when reconnecting
+    // after a dropped connection so playback resumes mid-album, not from track 1.
+    $seekSec = isset($_GET['seek']) ? max(0.0, (float)$_GET['seek']) : 0.0;
 
     $format = isset($_GET['format']) ? strtolower($_GET['format']) : 'aac';
     if (!in_array($format, ['aac','opus','mp3'])) $format = 'aac';
@@ -474,8 +454,6 @@ function handleAlbumStream() {
     $listFile = tempnam(sys_get_temp_dir(), 'jbcat_');
     $listContent = '';
     foreach ($fullPaths as $fp) {
-        // ffmpeg concat demuxer requires "file 'path'" with single-quoted paths,
-        // with internal single-quotes escaped as '\''
         $escaped = str_replace("'", "'\\''", $fp);
         $listContent .= "file '" . $escaped . "'\n";
     }
@@ -487,84 +465,38 @@ function handleAlbumStream() {
         return strtolower(pathinfo($p, PATHINFO_EXTENSION));
     }, $fullPaths))) === 1;
 
-    // ── Per-format encoding args + range support ─────────────────────────────
-    $startByte    = 0;
-    $seekSec      = 0.0;
-    $totalBytes   = 0;
-    $rangeSupport = false;
+    // -ss before -f concat seeks the concat demuxer directly (fast: jumps to
+    // the right file without re-decoding everything from the beginning).
+    $seekArgs = ($seekSec > 0) ? ['-ss', sprintf('%.3f', $seekSec)] : [];
 
     if ($format === 'aac' && in_array($inputExt, ['m4a','aac']) && $allSameExt) {
-        // Stream-copy into fragmented MP4 — Accept-Ranges: none because byte
-        // offsets don't map predictably to timestamps in a fragmented MP4.
         $mime = 'audio/mp4';
-        $args = [
-            $ffmpeg,
+        $args = array_merge([$ffmpeg], $seekArgs, [
             '-f', 'concat', '-safe', '0', '-i', $listFile,
             '-map', '0:a', '-c', 'copy',
             '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
             '-f', 'mp4', 'pipe:1',
-        ];
+        ]);
 
     } elseif ($format === 'opus') {
         $mime = 'audio/ogg';
-        $args = [
-            $ffmpeg,
+        $args = array_merge([$ffmpeg], $seekArgs, [
             '-f', 'concat', '-safe', '0', '-i', $listFile,
             '-vn', '-c:a', 'libopus', '-b:a', '160k',
             '-application', 'audio', '-f', 'ogg', 'pipe:1',
-        ];
+        ]);
 
     } else {
-        // ── MP3: CBR + Accept-Ranges: bytes ──────────────────────────────────
-        // CBR makes byte_offset ≈ time × (bitrate/8), so when Synology's nginx
-        // drops the connection mid-stream and Safari retries with Range: bytes=N-,
-        // we can seek ffmpeg to the right album position instead of track 1.
+        // MP3 input — CBR re-encode.  -write_xing 0 / -id3v2_version 0 suppress
+        // header fields that would let Safari calculate a (wrong) total duration
+        // and issue seeked range requests against the stream.
         $mime = 'audio/mpeg';
-        $cbr  = '192k';
-        $bps  = 192000; // must match $cbr
-
-        // Sum track durations via ffprobe for Content-Length
-        $totalDuration = 0.0;
-        if ($ffprobe) {
-            foreach ($fullPaths as $fp) {
-                $out = @shell_exec(
-                    escapeshellarg($ffprobe) .
-                    ' -v quiet -select_streams a:0' .
-                    ' -show_entries stream=duration' .
-                    ' -of default=nw=1:nk=1 ' .
-                    escapeshellarg($fp) . ' 2>/dev/null'
-                );
-                if (is_numeric(trim((string)$out))) {
-                    $totalDuration += (float)trim($out);
-                }
-            }
-        }
-
-        // Parse Range header — byte offset → seek timestamp
-        if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d+)-/', $_SERVER['HTTP_RANGE'], $m)) {
-            $startByte = (int)$m[1];
-            $seekSec   = max(0.0, $startByte / ($bps / 8));
-        }
-
-        // CBR: total ≈ duration × bitrate/8  (accurate to ±0.1%)
-        $totalBytes   = ($totalDuration > 0) ? (int)($totalDuration * $bps / 8) : 0;
-        $rangeSupport = ($totalBytes > 0);
-
-        // -ss before -f concat so ffmpeg seeks the concat demuxer directly
-        // (jumps to the right file — no full re-decode from the beginning)
-        $seekArgs = ($seekSec > 0) ? ['-ss', sprintf('%.3f', $seekSec)] : [];
-        $args = array_merge(
-            [$ffmpeg],
-            $seekArgs,
-            [
-                '-f', 'concat', '-safe', '0', '-i', $listFile,
-                '-vn',
-                '-c:a', 'libmp3lame', '-b:a', $cbr,
-                '-write_xing', '0',    // suppress VBR Xing header (avoids Safari
-                '-id3v2_version', '0', //   miscalculating duration from header fields)
-                '-f', 'mp3', 'pipe:1',
-            ]
-        );
+        $args = array_merge([$ffmpeg], $seekArgs, [
+            '-f', 'concat', '-safe', '0', '-i', $listFile,
+            '-vn', '-c:a', 'libmp3lame', '-b:a', '192k',
+            '-write_xing', '0', '-id3v2_version', '0',
+            '-f', 'mp3', 'pipe:1',
+        ]);
     }
 
     header('Cache-Control: no-store');
@@ -603,22 +535,11 @@ function handleAlbumStream() {
         exit;
     }
 
-    // ── Response headers ─────────────────────────────────────────────────────
     header("Content-Type: $mime");
-    if ($rangeSupport) {
-        // MP3/CBR: tell Safari it can make range requests. When Synology's nginx
-        // drops the connection mid-stream, Safari retries with Range: bytes=N-
-        // and we seek ffmpeg to the right position — not back to track 1.
-        header('Accept-Ranges: bytes');
-        $remaining = max(0, $totalBytes - $startByte);
-        header("Content-Length: $remaining");
-        if ($startByte > 0) {
-            http_response_code(206);
-            header("Content-Range: bytes $startByte-" . ($totalBytes - 1) . "/$totalBytes");
-        }
-    } else {
-        header('Accept-Ranges: none');
-    }
+    // Accept-Ranges: none prevents Safari from issuing parallel probe/range
+    // requests that would spawn extra PHP/ffmpeg processes. Reconnect-after-drop
+    // is handled at the JS layer via the ?seek= parameter instead.
+    header('Accept-Ranges: none');
 
     if ($firstChunk) { echo $firstChunk; flush(); }
 
