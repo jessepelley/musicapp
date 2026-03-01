@@ -1674,9 +1674,16 @@
         display: none !important;
       }
 
-      /* mob-search-trigger button in ctrls */
+      /* mob-search-trigger button in ctrls — moved to far right */
       #mob-search-trigger {
         color: var(--text2);
+        order: 10; /* push after all other controls */
+      }
+
+      /* Hide prev/next from mobile player bar — they live in the full-screen NP panel */
+      #mob-prev,
+      #mob-nxt {
+        display: none !important;
       }
 
       /* Push list bottom padding — just player height, no floating btn */
@@ -1684,19 +1691,9 @@
         padding-bottom: calc(var(--ph-mob) + max(0px, env(safe-area-inset-bottom)));
       }
 
-      /* Mobile column headers — 5 cols matching rows: # | art | Title | Time | ♥ */
+      /* Mobile: hide entire column header row — not needed on small screens */
       #col-hdrs {
-        grid-template-columns: 30px 28px 1fr 56px 34px !important;
-      }
-
-      #col-hdrs .ch {
         display: none !important;
-      }
-
-      /* Show: #(1), blank-art-spacer injected via JS, Title(2), Time(12), Heart(10) */
-      #col-hdrs .ch:nth-child(1),
-      #col-hdrs .ch.mob-show {
-        display: flex !important;
       }
     }
 
@@ -1744,11 +1741,7 @@
     }
 
     .s-flag-col svg {
-      transition: all .12s;
-    }
-
-    .s-flag-col:hover svg {
-      transform: scale(1.2);
+      /* transition removed — was causing scroll lag and graphical glitch after heart toggle */
     }
 
     /* Star */
@@ -2005,19 +1998,20 @@
       -webkit-overflow-scrolling: touch;
       padding-bottom: 20px;
     }
-    /* Mobile: catalog search bar moves to bottom */
+    /* Mobile: catalog search bar stays at TOP */
     @media (max-width: 700px) {
       #catalog-overlay {
-        flex-direction: column-reverse;
+        flex-direction: column;
       }
       #catalog-search-bar {
-        border-bottom: none;
-        border-top: 1px solid var(--border);
-        padding-bottom: max(14px, env(safe-area-inset-bottom));
+        border-bottom: 1px solid var(--border);
+        border-top: none;
+        padding-top: max(14px, env(safe-area-inset-top));
+        padding-bottom: 10px;
       }
       #catalog-results {
-        padding-bottom: 0;
-        padding-top: 10px;
+        padding-top: 0;
+        padding-bottom: max(20px, env(safe-area-inset-bottom));
       }
     }
     .cr-section-label {
@@ -2864,8 +2858,16 @@
       catalogOpen = true;
       document.getElementById('catalog-overlay').classList.add('open');
       const input = document.getElementById('catalog-input');
-      // Use requestAnimationFrame + timeout to ensure the element is visible before focusing
-      requestAnimationFrame(() => setTimeout(() => { input.focus(); }, 80));
+      // Focus + trigger keyboard immediately — the overlay is now visible (flex), so
+      // we use a short rAF+timeout to let the browser paint the overlay before focusing.
+      // On mobile this causes the keyboard to slide up right away.
+      requestAnimationFrame(() => setTimeout(() => {
+        input.focus();
+        // On iOS/Android, explicitly set cursor to end to ensure keyboard activation
+        const v = input.value;
+        input.value = '';
+        input.value = v;
+      }, 50));
     }
     function closeCatalog() {
       catalogOpen = false;
@@ -3540,7 +3542,11 @@ function setMS(song) {
         else if (col === 'playcount') { va = playCount(a.id); vb = playCount(b.id); }
         else if (col === 'lastplayed') { va = lastPlayed(a.id); vb = lastPlayed(b.id); }
         else if (col === 'skipcount') { va = skipCount(a.id); vb = skipCount(b.id); }
-        else if (col === 'dateadded') { va = getMeta(a.id).dateAdded || a.modified * 1000 || 0; vb = getMeta(b.id).dateAdded || b.modified * 1000 || 0; }
+        else if (col === 'dateadded') {
+          // Use date added to user's library; fall back to catalog dateAdded or file modification time
+          va = userLib[String(a.id)]?.added || getMeta(a.id).dateAdded || a.modified * 1000 || 0;
+          vb = userLib[String(b.id)]?.added || getMeta(b.id).dateAdded || b.modified * 1000 || 0;
+        }
         else { va = (a[col] || '').toString().toLowerCase(); vb = (b[col] || '').toString().toLowerCase(); }
         if (typeof va === 'string') return va.localeCompare(vb) * dir;
         return (va - vb) * dir;
@@ -3647,7 +3653,8 @@ function setMS(song) {
       else if (view === 'recently-played') s = [...lib].filter(x => lastPlayed(x.id) > 0);
       else if (view === 'recently-added') {
         const cutoff = now - (30 * 24 * 60 * 60 * 1000);
-        s = [...lib].filter(x => (getMeta(x.id).dateAdded || 0) > cutoff);
+        // Use date added to user's library (not date added to catalog)
+        s = [...lib].filter(x => (userLib[String(x.id)]?.added || getMeta(x.id).dateAdded || 0) > cutoff);
       }
       else if (view === 'most-skipped') s = [...lib].filter(x => skipCount(x.id) > 0);
       else {
@@ -3923,17 +3930,128 @@ function setMS(song) {
         const trackNum = (isPlaylist || isUpNext) ? (i + 1) : (song.track || (i + 1));
 
         if (mobile) {
-          // Always reserve the 28px art column — blank when no art, so all rows align
-          row.style.gridTemplateColumns = '30px 28px 1fr 56px 34px';
-          row.innerHTML = `
-            <div class="sn"><span class="snv">${trackNum}</span><div class="eqb"><svg width="14" height="14" viewBox="0 0 24 24" fill="var(--green)"><path d="M8 5v14l11-7z"/></svg></div></div>
-            <div style="display:flex;align-items:center;padding:3px 0">${artHtml}</div>
-            <div class="s-cell">
-              <span class="st">${esc(song.title || 'Unknown')}</span>
-              <span class="sa-mob">${esc(song.artist || '')}</span>
-            </div>
-            <div class="sd-mob">${fmt(song.duration)}</div>
-            <div class="s-flag-col star-btn${starred ? ' on' : ''}" data-id="${song.id}" style="display:flex;align-items:center;justify-content:center">${starSvg}</div>`;
+          if (isPlaylist || isUpNext) {
+            // Playlist / Up Next: show drag handle (⠿) instead of track number
+            row.style.gridTemplateColumns = '28px 28px 1fr 56px 34px';
+            row.innerHTML = `
+              <div class="mob-drag-handle" style="display:flex;align-items:center;justify-content:center;color:var(--text3);cursor:grab;touch-action:none;flex-shrink:0">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="9" cy="6" r="1.2" fill="currentColor" stroke="none"/>
+                  <circle cx="15" cy="6" r="1.2" fill="currentColor" stroke="none"/>
+                  <circle cx="9" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+                  <circle cx="15" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+                  <circle cx="9" cy="18" r="1.2" fill="currentColor" stroke="none"/>
+                  <circle cx="15" cy="18" r="1.2" fill="currentColor" stroke="none"/>
+                </svg>
+              </div>
+              <div style="display:flex;align-items:center;padding:3px 0">${artHtml}</div>
+              <div class="s-cell">
+                <span class="st">${esc(song.title || 'Unknown')}</span>
+                <span class="sa-mob">${esc(song.artist || '')}</span>
+              </div>
+              <div class="sd-mob">${fmt(song.duration)}</div>
+              <div class="s-flag-col star-btn${starred ? ' on' : ''}" data-id="${song.id}" style="display:flex;align-items:center;justify-content:center">${starSvg}</div>`;
+
+            // Touch drag-to-reorder via the drag handle
+            const dragHandle = row.querySelector('.mob-drag-handle');
+            dragHandle.addEventListener('touchstart', e => {
+              e.stopPropagation(); // prevent swipe + context-menu long-press
+              const touch = e.touches[0];
+              const rect = row.getBoundingClientRect();
+              let isDragging = true;
+              const dragOffsetY = touch.clientY - rect.top;
+
+              // Floating clone follows the finger
+              const clone = row.cloneNode(true);
+              Object.assign(clone.style, {
+                position: 'fixed', left: rect.left + 'px', top: rect.top + 'px',
+                width: rect.width + 'px', zIndex: '9999', opacity: '0.9',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.55)', pointerEvents: 'none',
+              });
+              document.body.appendChild(clone);
+              row.style.opacity = '0.3';
+              if (navigator.vibrate) navigator.vibrate(40);
+
+              function clearIndicators() {
+                document.querySelectorAll('.sr.drag-over-top,.sr.drag-over-bottom').forEach(r => {
+                  r.classList.remove('drag-over-top', 'drag-over-bottom');
+                });
+              }
+
+              function onMove(ev) {
+                if (!isDragging) return;
+                const t = ev.touches[0];
+                clone.style.top = (t.clientY - dragOffsetY) + 'px';
+                clearIndicators();
+                clone.style.visibility = 'hidden';
+                const el = document.elementFromPoint(t.clientX, t.clientY);
+                clone.style.visibility = '';
+                if (el) {
+                  const targetRow = el.closest('.sr[data-id]');
+                  if (targetRow && targetRow !== row) {
+                    const tr = targetRow.getBoundingClientRect();
+                    targetRow.classList.add(t.clientY < tr.top + tr.height / 2 ? 'drag-over-top' : 'drag-over-bottom');
+                  }
+                }
+              }
+
+              function onEnd() {
+                isDragging = false;
+                clone.remove();
+                row.style.opacity = '';
+                dragHandle.removeEventListener('touchmove', onMove);
+                dragHandle.removeEventListener('touchend', onEnd);
+
+                const overTop = document.querySelector('.sr.drag-over-top');
+                const overBot = document.querySelector('.sr.drag-over-bottom');
+                const targetRow = overTop || overBot;
+                const insertAfter = !!overBot;
+                clearIndicators();
+                if (!targetRow) return;
+                const targetId = targetRow.dataset.id;
+                if (!targetId || targetId === song.id) return;
+
+                if (isUpNext) {
+                  const fromIdx = queue.indexOf(song.id);
+                  const toIdx   = queue.indexOf(targetId);
+                  if (fromIdx < 0 || toIdx < 0) return;
+                  queue.splice(fromIdx, 1);
+                  const newTo = queue.indexOf(targetId);
+                  queue.splice(insertAfter ? newTo + 1 : newTo, 0, song.id);
+                  if (playingId) { const nqi = queue.indexOf(playingId); if (nqi >= 0) qi = nqi; }
+                  clearPrefetch(); updCounts(); renderList();
+                } else {
+                  const pl = pls.find(p => String(p.id) === String(view));
+                  if (!pl) return;
+                  const sids = [...pl.sids];
+                  const fromIdx = sids.indexOf(String(song.id));
+                  const toIdx   = sids.indexOf(String(targetId));
+                  if (fromIdx < 0 || toIdx < 0) return;
+                  sids.splice(fromIdx, 1);
+                  const newIdx = sids.indexOf(String(targetId));
+                  sids.splice(insertAfter ? newIdx + 1 : newIdx, 0, String(song.id));
+                  pl.sids = sids;
+                  pushPlaylists(); renderList();
+                }
+              }
+
+              dragHandle.addEventListener('touchmove', onMove, { passive: true });
+              dragHandle.addEventListener('touchend', onEnd, { passive: true });
+            }, { passive: true });
+          } else {
+            // Standard mobile row (Songs, Albums, Smart Views, etc.)
+            // Always reserve the 28px art column — blank when no art, so all rows align
+            row.style.gridTemplateColumns = '30px 28px 1fr 56px 34px';
+            row.innerHTML = `
+              <div class="sn"><span class="snv">${trackNum}</span><div class="eqb"><svg width="14" height="14" viewBox="0 0 24 24" fill="var(--green)"><path d="M8 5v14l11-7z"/></svg></div></div>
+              <div style="display:flex;align-items:center;padding:3px 0">${artHtml}</div>
+              <div class="s-cell">
+                <span class="st">${esc(song.title || 'Unknown')}</span>
+                <span class="sa-mob">${esc(song.artist || '')}</span>
+              </div>
+              <div class="sd-mob">${fmt(song.duration)}</div>
+              <div class="s-flag-col star-btn${starred ? ' on' : ''}" data-id="${song.id}" style="display:flex;align-items:center;justify-content:center">${starSvg}</div>`;
+          }
         } else {
           row.style.gridTemplateColumns = tpl;
           // Enable drag for playlists AND Up Next
@@ -3970,7 +4088,7 @@ function setMS(song) {
             if (c.col === 'playcount') return `<div class="sd">${playCount(song.id) || ''}</div>`;
             if (c.col === 'skipcount') return `<div class="sd">${skipCount(song.id) || ''}</div>`;
             if (c.col === 'lastplayed') return `<div class="sd">${fmtDate(lastPlayed(song.id))}</div>`;
-            if (c.col === 'dateadded') return `<div class="sd">${fmtDate(getMeta(song.id).dateAdded || song.modified * 1000)}</div>`;
+            if (c.col === 'dateadded') return `<div class="sd">${fmtDate(userLib[String(song.id)]?.added || getMeta(song.id).dateAdded || song.modified * 1000)}</div>`;
             if (c.col === 'star') return `<div class="s-flag-col star-btn${starred ? ' on' : ''}" data-id="${song.id}">${starSvg}</div>`;
             if (c.col === '_cache') return `<div class="sdl${isCached ? ' cached' : ''}">${cacheSvg}</div>`;
             if (c.col === '_remove') return `<div class="sq-remove" data-id="${song.id}" title="Remove from queue"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>`;
@@ -4054,15 +4172,25 @@ function setMS(song) {
 
         // iOS-style swipe-left to reveal action button at right edge
         if (window.innerWidth <= 700) {
-          const ACTION_W = 80;
-          const THRESHOLD = ACTION_W * 0.6;
-          let swStartX = 0, swStartY = 0, swTracking = false, swOpen = false;
+          // Missing songs don't get a swipe button — they can't be added to playlists
+          // and removing them would just show a ghost row anyway
+          if (song._missing) {
+            frag.appendChild(row);
+            return; // skip swipe wrapper for missing songs
+          }
 
           const swipeIsRemove = isUpNext || isPlaylist;
           const swipeLabel = swipeIsRemove ? 'Remove' : (() => {
             const lp = (lastUsedPlId && pls.find(p => String(p.id) === lastUsedPlId)) || pls[pls.length - 1];
             return lp ? `+ ${lp.name}` : '+ Playlist';
           })();
+
+          // Calculate button width to fit the label text — avoids text cut-off for long names
+          const _mc = document.createElement('canvas').getContext('2d');
+          _mc.font = '600 13px "DM Sans", sans-serif';
+          const ACTION_W = Math.max(80, Math.ceil(_mc.measureText(swipeLabel).width) + 32);
+          const THRESHOLD = ACTION_W * 0.6;
+          let swStartX = 0, swStartY = 0, swTracking = false, swOpen = false;
 
           // Wrapper clips the sliding row — button is a sibling inside the wrapper
           const wrap = document.createElement('div');
@@ -4183,7 +4311,8 @@ function setMS(song) {
       const starCount = lib.filter(s => isStarred(s.id)).length;
       const neverCount = lib.filter(s => !playCount(s.id)).length;
       const recentCutoff = now - (30 * 24 * 60 * 60 * 1000);
-      const recentCount = lib.filter(s => (getMeta(s.id).dateAdded || 0) > recentCutoff).length;
+      // Use date added to user's library for Recently Added count
+      const recentCount = lib.filter(s => (userLib[String(s.id)]?.added || getMeta(s.id).dateAdded || 0) > recentCutoff).length;
       const recentPlayedCount = lib.filter(s => lastPlayed(s.id) > 0).length;
       const mostPlayedCount = lib.filter(s => playCount(s.id) > 0).length;
       const mostSkippedCount = lib.filter(s => skipCount(s.id) > 0).length;
@@ -4306,7 +4435,11 @@ function setMS(song) {
     // ── NOW PLAYING PANEL (mobile) ────────────────────────────────────────────────
     function openNPPanel() { document.getElementById('nowplaying-panel').classList.add('open'); }
     function closeNPPanel() { document.getElementById('nowplaying-panel').classList.remove('open'); }
-    // Only open NP panel when tapping the song info text — not the whole player bar
+    // Open NP panel when tapping album art or song info text
+    document.getElementById('mob-art').addEventListener('click', e => {
+      e.stopPropagation();
+      openNPPanel();
+    });
     document.getElementById('mob-info').addEventListener('click', e => {
       openNPPanel();
     });
