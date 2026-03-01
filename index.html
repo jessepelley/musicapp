@@ -2178,6 +2178,15 @@
         </svg>
         Singles <span class="badge" id="singles-ct">0</span>
       </div>
+      <div class="ni" data-view="compilations" id="nav-compilations">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/>
+        </svg>
+        Compilations <span class="badge" id="compilations-ct">0</span>
+      </div>
       <div class="ni" data-view="cached" id="nav-cached">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="8 17 12 21 16 17" />
@@ -2573,6 +2582,7 @@
       'albums':          { col: 'artist', dir: 1 },
       'singles':         { col: 'artist', dir: 1 },
       'cached':          { col: 'artist', dir: 1 },
+      'compilations':    { col: 'artist', dir: 1 },
       'upnext':          { col: '_queue', dir: 1 },  // fixed queue order
       'recently-added':  { col: 'dateadded', dir: -1 },
       'recently-played': { col: 'lastplayed', dir: -1 },
@@ -3454,9 +3464,9 @@ function setMS(song) {
       document.getElementById('lib-ct').textContent = nonMissing.length;
       document.getElementById('upnext-ct').textContent = queue.length;
       if (nonMissing.length) {
-        const ids = getCompleteAlbumIds();
-        document.getElementById('albums-ct').textContent = nonMissing.filter(s => ids.has(s.id)).length;
-        document.getElementById('singles-ct').textContent = nonMissing.filter(s => !ids.has(s.id)).length;
+        document.getElementById('albums-ct').textContent       = nonMissing.filter(s => s.section === 'albums').length;
+        document.getElementById('singles-ct').textContent      = nonMissing.filter(s => s.section === 'singles').length;
+        document.getElementById('compilations-ct').textContent = nonMissing.filter(s => s.section === 'compilations').length;
       }
     }
 
@@ -3616,9 +3626,9 @@ function setMS(song) {
       if (view === 'cached') s = lib.filter(x => cachedIds.has(x.id));
       else if (view === 'all') s = [...lib];
       else if (view === 'albums') {
-        const ids = getCompleteAlbumIds();
-        s = lib.filter(x => ids.has(x.id));
-        // Always sort albums view by artist → album → disc → track regardless of user sort
+        // Driven by the 'section' field set from the filesystem path in api.php
+        s = lib.filter(x => x.section === 'albums');
+        // Sort: artist → album → disc → track
         s.sort((a, b) => {
           const ga = _groupArtist(a), gb = _groupArtist(b);
           if (ga !== gb) return ga < gb ? -1 : 1;
@@ -3631,14 +3641,27 @@ function setMS(song) {
         return s;
       }
       else if (view === 'singles') {
-        const ids = getCompleteAlbumIds();
-        s = lib.filter(x => !ids.has(x.id));
-        // Sort singles by artist → album → track
+        // Driven by the 'section' field set from the filesystem path in api.php
+        s = lib.filter(x => x.section === 'singles');
+        // Sort: artist → album → track
         s.sort((a, b) => {
           const ga = _groupArtist(a), gb = _groupArtist(b);
           if (ga !== gb) return ga < gb ? -1 : 1;
           const al = (a.album || '').toLowerCase(), bl = (b.album || '').toLowerCase();
           if (al !== bl) return al < bl ? -1 : 1;
+          return (a.track || 0) - (b.track || 0);
+        });
+        if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title||'').toLowerCase().includes(q)||(x.artist||'').toLowerCase().includes(q)||(x.album||'').toLowerCase().includes(q)); }
+        return s;
+      }
+      else if (view === 'compilations') {
+        // Driven by the 'section' field set from the filesystem path in api.php
+        s = lib.filter(x => x.section === 'compilations');
+        // Sort: album → disc → track (album name first since these are Various Artists)
+        s.sort((a, b) => {
+          const al = (a.album || '').toLowerCase(), bl = (b.album || '').toLowerCase();
+          if (al !== bl) return al < bl ? -1 : 1;
+          if ((a.disc || 1) !== (b.disc || 1)) return (a.disc || 1) - (b.disc || 1);
           return (a.track || 0) - (b.track || 0);
         });
         if (sq) { const q = sq.toLowerCase(); s = s.filter(x => (x.title||'').toLowerCase().includes(q)||(x.artist||'').toLowerCase().includes(q)||(x.album||'').toLowerCase().includes(q)); }
@@ -3701,7 +3724,7 @@ function setMS(song) {
 
       if (v === 'all' || v === 'cached')
         return [numCol, titleCol, timeCol, artistCol, albumCol, addplCol, starCol, cacheCol];
-      if (v === 'albums' || v === 'singles')
+      if (v === 'albums' || v === 'singles' || v === 'compilations')
         return [numCol, titleCol, timeCol, artistCol, albumCol, addplCol, starCol, cacheCol];
       if (v === 'upnext')
         return [numCol, titleCol, timeCol, artistCol, albumCol, addplCol, starCol, cacheCol];
@@ -4293,9 +4316,12 @@ function setMS(song) {
       document.getElementById('cache-ct').textContent = cachedIds.size;
       document.getElementById('upnext-ct').textContent = queue.length;
       // Highlight fixed nav items
-      ['all','albums','singles','cached','upnext'].forEach(id => {
+      ['all','albums','singles','compilations','cached','upnext'].forEach(id => {
         document.getElementById('nav-' + id)?.classList.toggle('active', view === id);
       });
+      // Keep compilations badge in sync
+      const allLib = libSongs().filter(s => !s._missing);
+      document.getElementById('compilations-ct').textContent = allLib.filter(s => s.section === 'compilations').length;
       const nav = document.getElementById('pl-nav');
       nav.innerHTML = '';
       // ── Smart views ──────────────────────────────────────────────────────────────
@@ -4371,6 +4397,7 @@ function setMS(song) {
       'albums':          'Albums',
       'singles':         'Singles',
       'cached':          'Offline Cache',
+      'compilations':    'Compilations',
       'upnext':          'Up Next',
       'recently-added':  'Recently Added',
       'recently-played': 'Recently Played',
@@ -4426,6 +4453,7 @@ function setMS(song) {
     document.getElementById('nav-all').addEventListener('click', () => { switchView('all'); closeSidebar(); });
     document.getElementById('nav-albums').addEventListener('click', () => { switchView('albums'); closeSidebar(); });
     document.getElementById('nav-singles').addEventListener('click', () => { switchView('singles'); closeSidebar(); });
+    document.getElementById('nav-compilations').addEventListener('click', () => { switchView('compilations'); closeSidebar(); });
     document.getElementById('nav-cached').addEventListener('click', () => { switchView('cached'); closeSidebar(); });
     document.getElementById('nav-upnext').addEventListener('click', () => { switchView('upnext'); closeSidebar(); });
 
