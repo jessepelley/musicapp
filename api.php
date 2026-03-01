@@ -403,9 +403,11 @@ function handleSignAlbum() {
 //   paths[]        — ordered list of relative song paths (URL-encoded)
 //   format         — "aac" (default), "opus", or "mp3"
 //
-// FIX: Accept-Ranges: none is mandatory. Without it, Safari sends Range requests
-// mid-stream which restart the PHP process and serve from track 1 again,
-// causing the "plays track 2 then loops back to track 1" bug.
+// For MP3 inputs we use CBR + Accept-Ranges: bytes so that if Synology's nginx
+// drops the connection mid-stream (timeout/buffer limit), Safari's retry Range
+// request can seek ffmpeg to the correct album position instead of restarting
+// from track 1. For AAC/M4A we keep Accept-Ranges: none (fragmented MP4 byte
+// offsets don't map linearly to timestamps).
 function handleAlbumStream() {
     // Allow this script to run as long as the album takes to stream
     set_time_limit(0);
@@ -455,6 +457,16 @@ function handleAlbumStream() {
     }
     if (!$ffmpeg) { http_response_code(500); echo 'ffmpeg not available'; exit; }
 
+    // Find ffprobe (used on the MP3 path to sum track durations for Content-Length)
+    static $ffprobe = null;
+    if ($ffprobe === null) {
+        $ffprobe = false;
+        foreach (['/volume1/music/ffmpeg/ffprobe','/usr/local/bin/ffprobe','/usr/bin/ffprobe','/opt/ffmpeg/bin/ffprobe','/opt/bin/ffprobe','/bin/ffprobe'] as $c) {
+            if (@is_executable($c)) { $ffprobe = $c; break; }
+        }
+        if (!$ffprobe) { $w = @shell_exec('which ffprobe 2>/dev/null'); if ($w) $ffprobe = trim($w); }
+    }
+
     $format = isset($_GET['format']) ? strtolower($_GET['format']) : 'aac';
     if (!in_array($format, ['aac','opus','mp3'])) $format = 'aac';
 
@@ -475,65 +487,88 @@ function handleAlbumStream() {
         return strtolower(pathinfo($p, PATHINFO_EXTENSION));
     }, $fullPaths))) === 1;
 
-    // Choose output format:
-    // M4A/AAC input  → stream-copy into fragmented MP4 (no re-encode, true gapless)
-    // MP3 input      → re-encode with libmp3lame
-    // Mixed/other    → re-encode to MP3 as safe fallback
+    // ── Per-format encoding args + range support ─────────────────────────────
+    $startByte    = 0;
+    $seekSec      = 0.0;
+    $totalBytes   = 0;
+    $rangeSupport = false;
+
     if ($format === 'aac' && in_array($inputExt, ['m4a','aac']) && $allSameExt) {
+        // Stream-copy into fragmented MP4 — Accept-Ranges: none because byte
+        // offsets don't map predictably to timestamps in a fragmented MP4.
         $mime = 'audio/mp4';
         $args = [
             $ffmpeg,
-            '-f', 'concat', '-safe', '0',
-            '-i', $listFile,
-            '-map', '0:a',
-            '-c', 'copy',
-            // frag_keyframe   — write a new MP4 fragment at each keyframe (allows streaming)
-            // empty_moov      — write a minimal moov at the start so playback begins immediately
-            // default_base_moof — each fragment is self-contained; browser does NOT need to
-            //                     seek to the end of the file to find metadata, which would
-            //                     trigger a Range request and restart the PHP process
+            '-f', 'concat', '-safe', '0', '-i', $listFile,
+            '-map', '0:a', '-c', 'copy',
             '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-            '-f', 'mp4',
-            'pipe:1',
+            '-f', 'mp4', 'pipe:1',
         ];
+
     } elseif ($format === 'opus') {
         $mime = 'audio/ogg';
         $args = [
             $ffmpeg,
-            '-f', 'concat', '-safe', '0',
-            '-i', $listFile,
-            '-vn',
-            '-c:a', 'libopus',
-            '-b:a', '160k',
-            '-application', 'audio',
-            '-f', 'ogg',
-            'pipe:1',
+            '-f', 'concat', '-safe', '0', '-i', $listFile,
+            '-vn', '-c:a', 'libopus', '-b:a', '160k',
+            '-application', 'audio', '-f', 'ogg', 'pipe:1',
         ];
+
     } else {
-        // MP3 input or mixed — re-encode to MP3
+        // ── MP3: CBR + Accept-Ranges: bytes ──────────────────────────────────
+        // CBR makes byte_offset ≈ time × (bitrate/8), so when Synology's nginx
+        // drops the connection mid-stream and Safari retries with Range: bytes=N-,
+        // we can seek ffmpeg to the right album position instead of track 1.
         $mime = 'audio/mpeg';
-        $args = [
-            $ffmpeg,
-            '-f', 'concat', '-safe', '0',
-            '-i', $listFile,
-            '-vn',
-            '-c:a', 'libmp3lame',
-            '-q:a', '2',
-            '-f', 'mp3',
-            'pipe:1',
-        ];
+        $cbr  = '192k';
+        $bps  = 192000; // must match $cbr
+
+        // Sum track durations via ffprobe for Content-Length
+        $totalDuration = 0.0;
+        if ($ffprobe) {
+            foreach ($fullPaths as $fp) {
+                $out = @shell_exec(
+                    escapeshellarg($ffprobe) .
+                    ' -v quiet -select_streams a:0' .
+                    ' -show_entries stream=duration' .
+                    ' -of default=nw=1:nk=1 ' .
+                    escapeshellarg($fp) . ' 2>/dev/null'
+                );
+                if (is_numeric(trim((string)$out))) {
+                    $totalDuration += (float)trim($out);
+                }
+            }
+        }
+
+        // Parse Range header — byte offset → seek timestamp
+        if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d+)-/', $_SERVER['HTTP_RANGE'], $m)) {
+            $startByte = (int)$m[1];
+            $seekSec   = max(0.0, $startByte / ($bps / 8));
+        }
+
+        // CBR: total ≈ duration × bitrate/8  (accurate to ±0.1%)
+        $totalBytes   = ($totalDuration > 0) ? (int)($totalDuration * $bps / 8) : 0;
+        $rangeSupport = ($totalBytes > 0);
+
+        // -ss before -f concat so ffmpeg seeks the concat demuxer directly
+        // (jumps to the right file — no full re-decode from the beginning)
+        $seekArgs = ($seekSec > 0) ? ['-ss', sprintf('%.3f', $seekSec)] : [];
+        $args = array_merge(
+            [$ffmpeg],
+            $seekArgs,
+            [
+                '-f', 'concat', '-safe', '0', '-i', $listFile,
+                '-vn',
+                '-c:a', 'libmp3lame', '-b:a', $cbr,
+                '-write_xing', '0',    // suppress VBR Xing header (avoids Safari
+                '-id3v2_version', '0', //   miscalculating duration from header fields)
+                '-f', 'mp3', 'pipe:1',
+            ]
+        );
     }
 
-    // ── Streaming headers ────────────────────────────────────────────────────
-    // Accept-Ranges: none is the critical fix. Without it, Safari/iOS sends
-    // a Range request partway through playback (to probe total duration or
-    // buffer additional content). That request spawns a new PHP process which
-    // restarts ffmpeg from track 1, causing the "loops back to track 1" bug.
-    header('Accept-Ranges: none');
     header('Cache-Control: no-store');
-    header('X-Accel-Buffering: no'); // disable Nginx proxy buffering
-
-    // Flush any PHP output buffers so headers go out immediately
+    header('X-Accel-Buffering: no');
     while (ob_get_level()) ob_end_clean();
 
     // Stream ffmpeg output directly to client
@@ -568,14 +603,24 @@ function handleAlbumStream() {
         exit;
     }
 
-    // ffmpeg is producing output — stream it
+    // ── Response headers ─────────────────────────────────────────────────────
     header("Content-Type: $mime");
-    header('Transfer-Encoding: chunked');
-
-    if ($firstChunk) {
-        echo $firstChunk;
-        flush();
+    if ($rangeSupport) {
+        // MP3/CBR: tell Safari it can make range requests. When Synology's nginx
+        // drops the connection mid-stream, Safari retries with Range: bytes=N-
+        // and we seek ffmpeg to the right position — not back to track 1.
+        header('Accept-Ranges: bytes');
+        $remaining = max(0, $totalBytes - $startByte);
+        header("Content-Length: $remaining");
+        if ($startByte > 0) {
+            http_response_code(206);
+            header("Content-Range: bytes $startByte-" . ($totalBytes - 1) . "/$totalBytes");
+        }
+    } else {
+        header('Accept-Ranges: none');
     }
+
+    if ($firstChunk) { echo $firstChunk; flush(); }
 
     stream_set_blocking($pipes[1], true);
     while (!feof($pipes[1]) && !connection_aborted()) {
@@ -585,9 +630,7 @@ function handleAlbumStream() {
         flush();
     }
 
-    fclose($pipes[1]);
-    fclose($pipes[2]);
-    proc_close($proc);
+    fclose($pipes[1]); fclose($pipes[2]); proc_close($proc);
     @unlink($listFile);
 }
 // ─── LIBRARY — serve cache (TTL 24h), rebuild on expiry ──────────────────────
