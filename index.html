@@ -2860,14 +2860,11 @@
       const input = document.getElementById('catalog-input');
       // Focus + trigger keyboard immediately — the overlay is now visible (flex), so
       // we use a short rAF+timeout to let the browser paint the overlay before focusing.
-      // On mobile this causes the keyboard to slide up right away.
-      requestAnimationFrame(() => setTimeout(() => {
-        input.focus();
-        // On iOS/Android, explicitly set cursor to end to ensure keyboard activation
-        const v = input.value;
-        input.value = '';
-        input.value = v;
-      }, 50));
+      // iOS Safari requires focus() to be called synchronously within the user-gesture
+      // call stack — any rAF/setTimeout delay breaks the gesture chain and the keyboard
+      // won't appear. Calling focus() right here (overlay is already display:flex from
+      // classList.add above) satisfies that requirement.
+      input.focus();
     }
     function closeCatalog() {
       catalogOpen = false;
