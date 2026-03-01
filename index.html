@@ -1027,6 +1027,78 @@
       background: var(--accent);
     }
 
+    .stoggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+
+    .stoggle-label {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .stoggle-label strong {
+      display: block;
+      font-size: 12px;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+
+    .stoggle-label span {
+      font-size: 10px;
+      color: var(--text3);
+      line-height: 1.4;
+    }
+
+    .stoggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .stoggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+
+    .stoggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+
+    .stoggle input:checked + .stoggle-track {
+      background: var(--accent-dk);
+      border-color: var(--accent);
+    }
+
+    .stoggle-track::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      background: var(--text3);
+      border-radius: 50%;
+      transition: transform .15s, background .15s;
+    }
+
+    .stoggle input:checked + .stoggle-track::after {
+      transform: translateX(16px);
+      background: #fff;
+    }
+
     .snote {
       font-size: 11px;
       color: var(--text3);
@@ -2518,6 +2590,16 @@
       <div class="sf"><label>NAS URL</label><input type="url" id="cfg-url" placeholder="https://music.yourdomain.com">
       </div>
       <div class="sf"><label>API Key</label><input type="password" id="cfg-key" placeholder="your-secret-key"></div>
+      <div class="stoggle-row">
+        <div class="stoggle-label">
+          <strong>Gapless Playback</strong>
+          <span>Merges album tracks server-side for seamless playback. Recommended for iOS.</span>
+        </div>
+        <label class="stoggle" title="Toggle gapless playback">
+          <input type="checkbox" id="cfg-gapless">
+          <span class="stoggle-track"></span>
+        </label>
+      </div>
       <button id="ssave">Save &amp; Connect</button>
       <p class="snote">Upload <code>api.php</code> and <code>index.html</code> to the same web folder on your Synology.
         Set <code>MUSIC_DIR</code> and <code>API_KEY</code> at the top of <code>api.php</code>.</p>
@@ -4829,16 +4911,18 @@ function setMS(song) {
       localStorage.setItem('jb-gapless', val ? '1' : '0');
       const badge = document.getElementById('np-badge');
       const mobBadge = document.getElementById('mob-np-badge');
-      toast(gaplessMode ? 'Gapless mode ON — album tracks merge into one stream' : 'Gapless mode OFF — normal per-track streaming');
-      // Update badge appearance to indicate mode
-      [badge, mobBadge].forEach(b => { if (b) b.title = gaplessMode ? 'Gapless ON — tap to disable' : 'Tap to enable Gapless mode'; });
+      const chk = document.getElementById('cfg-gapless');
+      if (chk) chk.checked = val;
+      toast(gaplessMode ? 'Gapless playback ON' : 'Gapless playback OFF');
+      [badge, mobBadge].forEach(b => { if (b) b.title = gaplessMode ? 'Gapless ON' : 'Gapless OFF'; });
     }
     gaplessMode = localStorage.getItem('jb-gapless') === '1';
+    document.getElementById('cfg-gapless').addEventListener('change', e => setGapless(e.target.checked));
     document.getElementById('np-badge').addEventListener('click', () => setGapless(!gaplessMode));
     document.getElementById('mob-np-badge').addEventListener('click', e => { e.stopPropagation(); setGapless(!gaplessMode); });
 
     // ── SETTINGS ──────────────────────────────────────────────────────────────────
-    function showSet() { document.getElementById('cfg-url').value = cfg.url || ''; document.getElementById('cfg-key').value = cfg.apiKey || ''; document.getElementById('sp').classList.add('show'); }
+    function showSet() { document.getElementById('cfg-url').value = cfg.url || ''; document.getElementById('cfg-key').value = cfg.apiKey || ''; document.getElementById('cfg-gapless').checked = gaplessMode; document.getElementById('sp').classList.add('show'); }
     document.getElementById('setbtn').addEventListener('click', showSet);
     document.getElementById('empty-set').addEventListener('click', showSet);
     document.getElementById('sclose').addEventListener('click', () => document.getElementById('sp').classList.remove('show'));
