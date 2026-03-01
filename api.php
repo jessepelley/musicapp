@@ -412,6 +412,7 @@ function handleSignAlbum() {
 //   seconds. JS layer no longer needs to manage reconnects.
 function handleAlbumStream() {
     set_time_limit(0);
+    @ini_set('max_execution_time', '0');  // belt-and-suspenders for Synology php.ini
     ignore_user_abort(false);
 
     $token   = isset($_GET['token'])   ? $_GET['token']   : '';
@@ -559,11 +560,26 @@ function handleAlbumStream() {
 
     stream_set_blocking($pipes[2], false);
     stream_set_blocking($pipes[1], false);
-    usleep(300000); // 300ms — give ffmpeg a moment to fail or start producing output
-    $errOut     = stream_get_contents($pipes[2]);
+    usleep(300000); // 300ms initial wait
     $firstChunk = stream_get_contents($pipes[1]);
 
-    if (($firstChunk === '' || $firstChunk === false) && $errOut) {
+    // When seeking (-ss), ffmpeg may take longer to produce output because it
+    // needs to probe input file durations and seek through the concat list.
+    // ffmpeg ALWAYS writes its version banner to stderr, so stderr output alone
+    // does NOT indicate an error.  Only treat it as a failure if the process
+    // has exited AND produced no audio output.
+    if (($firstChunk === '' || $firstChunk === false)) {
+        for ($w = 0; $w < 50; $w++) {            // wait up to 5 more seconds
+            $status = proc_get_status($proc);
+            if (!$status['running']) break;
+            usleep(100000); // 100ms
+            $firstChunk = stream_get_contents($pipes[1]);
+            if ($firstChunk !== '' && $firstChunk !== false) break;
+        }
+    }
+
+    if (($firstChunk === '' || $firstChunk === false)) {
+        $errOut = stream_get_contents($pipes[2]);
         fclose($pipes[1]); fclose($pipes[2]); proc_close($proc);
         @unlink($listFile);
         header('Content-Type: text/plain');
