@@ -1,0 +1,40 @@
+name: Auto create PR for Claude branches
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-pull-request:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create pull request if none exists
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json number --jq '.[0].number')
+
+          if [ -z "$EXISTING_PR" ]; then
+            gh pr create \
+              --base main \
+              --head "$BRANCH_NAME" \
+              --title "Auto PR: $BRANCH_NAME" \
+              --body "Automatically created pull request for branch $BRANCH_NAME."
+          else
+            echo "Pull request already exists."
+          fi
+env:
+  GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
