@@ -2718,7 +2718,6 @@
       el.addEventListener('loadedmetadata', _onLoadedMeta);
       el.addEventListener('loadedmetadata', _onLoadedMetaPlayCount);
       el.addEventListener('error', _onAudError);
-      el.addEventListener('loadstart', _onLoadStart);
     }
     function _detachAudListeners(el) {
       el.removeEventListener('ended', _onEnded);
@@ -2728,7 +2727,6 @@
       el.removeEventListener('loadedmetadata', _onLoadedMeta);
       el.removeEventListener('loadedmetadata', _onLoadedMetaPlayCount);
       el.removeEventListener('error', _onAudError);
-      el.removeEventListener('loadstart', _onLoadStart);
     }
 
     function apiBase() { return (cfg.url || '').replace(/\/$/, ''); }
@@ -2764,7 +2762,7 @@
     //
     // Triggered automatically when: view==='albums' AND not shuffling AND album is complete.
     // Falls back to normal per-track streaming on any error.
-    async function albumStreamUrl(trackPaths, seekSec = 0) {
+    async function albumStreamUrl(trackPaths, totalSec = 0) {
       if (!cfg.url || !cfg.apiKey || !online) return null;
       try {
         const d = await apost('sign_album', { paths: trackPaths });
@@ -2772,7 +2770,7 @@
         const params = new URLSearchParams({
           action: 'album_stream', token: d.token, expires: d.expires, format: 'aac'
         });
-        if (seekSec > 0) params.set('seek', seekSec.toFixed(3));
+        if (totalSec > 0) params.set('total_sec', totalSec.toFixed(1));
         trackPaths.forEach(p => params.append('paths[]', p));
         return apiBase() + '/api.php?' + params.toString();
       } catch { return null; }
@@ -3214,19 +3212,19 @@
                 .filter(s => s && s.album === song.album && (s.album_artist || s.artist) === (song.album_artist || song.artist));
               if (remaining.length > 1) {
                 const albumPaths = remaining.map(s => s.path);
-                const albumSrc = await albumStreamUrl(albumPaths);
+                const totalSec = remaining.reduce((s, sg) => s + (sg.duration || 0), 0);
+                const albumSrc = await albumStreamUrl(albumPaths, totalSec);
                 if (albumSrc) {
                   src = albumSrc;
                   _activeAlbumStreamSongIds = remaining.map(s => s.id);
                   _albumStreamPaths  = albumPaths;
-                  _albumStreamOffset = 0;
                   setBadge('stream', '⋯ ALBUM', song);
                   usedAlbumStream = true;
                 }
               }
             } catch { /* fall through to normal stream */ }
           }
-          if (!usedAlbumStream) { _activeAlbumStreamSongIds = null; _albumStreamPaths = null; _albumStreamOffset = 0; _albumPeakTime = 0; }
+          if (!usedAlbumStream) { _activeAlbumStreamSongIds = null; _albumStreamPaths = null; }
           if (!usedAlbumStream) {
             try { src = await streamUrl(song); setBadge('stream', '⋯ STREAMING', song); }
             catch { toast('Stream failed'); return; }
@@ -3419,28 +3417,7 @@ function setMS(song) {
     let _userPaused = false;
 
     let _activeAlbumStreamSongIds = null; // track which songs are covered by current album stream
-    let _albumStreamPaths  = null;  // track paths for reconnect-after-drop
-    let _albumStreamOffset = 0;     // seconds already played before current connection
-    let _albumStreamReconnecting = false;
-    let _albumPeakTime = 0;         // highest raw aud.currentTime seen (for loadstart resume)
-
-    async function _reconnectAlbumStream(fromSec) {
-      if (!_activeAlbumStreamSongIds || !_albumStreamPaths || _albumStreamReconnecting) return;
-      const resumeSec = (fromSec !== undefined) ? fromSec : (_albumStreamOffset + aud.currentTime);
-      if (resumeSec < 2) return; // avoid looping at the very start
-      console.log('[GaplessStream] Reconnecting from', resumeSec.toFixed(1), 's (offset', _albumStreamOffset.toFixed(1), '+ currentTime', aud.currentTime.toFixed(1), ')');
-      _albumStreamReconnecting = true;
-      try {
-        const newSrc = await albumStreamUrl(_albumStreamPaths, resumeSec);
-        if (!newSrc) { _albumStreamReconnecting = false; return; }
-        _albumStreamOffset = resumeSec;
-        _albumPeakTime = 0;
-        aud.src = newSrc;
-        await aud.play();
-        console.log('[GaplessStream] Reconnected OK');
-      } catch(e) { console.warn('[GaplessStream] Reconnect failed:', e); }
-      _albumStreamReconnecting = false;
-    }
+    let _albumStreamPaths  = null;        // track paths for stream state tracking
 
     function _onEnded() {
       if (rep === 2) { aud.currentTime = 0; aud.play(); return; }
@@ -3448,7 +3425,7 @@ function setMS(song) {
         // Album stream ended — the entire merged album is done. Advance past all covered songs.
         const lastId = _activeAlbumStreamSongIds[_activeAlbumStreamSongIds.length - 1];
         const lastIdx = queue.indexOf(lastId);
-        _activeAlbumStreamSongIds = null; _albumStreamPaths = null; _albumStreamOffset = 0; _albumPeakTime = 0;
+        _activeAlbumStreamSongIds = null; _albumStreamPaths = null;
         if (lastIdx >= 0 && lastIdx + 1 < queue.length) {
           qi = lastIdx;
           playingId = queue[qi + 1];
@@ -3461,19 +3438,8 @@ function setMS(song) {
       }
     }
     function _onAudError() {
-      const code = aud.error?.code;
-      console.log('[GaplessStream] error event, code:', code, 'offset:', _albumStreamOffset.toFixed(1), 'currentTime:', aud.currentTime.toFixed(1), 'peakTime:', _albumPeakTime.toFixed(1));
-      if (_activeAlbumStreamSongIds) _reconnectAlbumStream();
-    }
-    function _onLoadStart() {
-      // loadstart fires both when WE set aud.src and when Safari silently
-      // reconnects after a dropped stream. If it fires while an album stream
-      // is active and we didn't trigger it, Safari has reconnected from byte 0
-      // (track 1). Intercept and reconnect from the correct position instead.
-      if (_activeAlbumStreamSongIds && !_albumStreamReconnecting) {
-        console.log('[GaplessStream] loadstart fired externally during album stream — Safari auto-reconnect? peakTime:', _albumPeakTime.toFixed(1));
-        const resumeSec = _albumStreamOffset + _albumPeakTime;
-        if (resumeSec > 2) _reconnectAlbumStream(resumeSec);
+      if (_activeAlbumStreamSongIds) {
+        console.log('[GaplessStream] audio error during album stream, code:', aud.error?.code);
       }
     }
     function _onPlay() {
@@ -3483,9 +3449,7 @@ function setMS(song) {
       playing = false; updPBtn(); renderList();
     }
     function _onTimeUpdate() {
-      const rawTime = aud.currentTime;
-      if (_activeAlbumStreamSongIds && rawTime > _albumPeakTime) _albumPeakTime = rawTime;
-      const curTime = rawTime + _albumStreamOffset;
+      const curTime = aud.currentTime;
       const dur     = aud.duration;
       const isFinite_ = dur && isFinite(dur) && dur > 0;
       if (isFinite_) {

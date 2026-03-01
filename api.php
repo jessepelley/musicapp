@@ -393,20 +393,23 @@ function handleSignAlbum() {
 }
 // ─── ALBUM STREAM (ffmpeg concat, gapless) ────────────────────────────────────
 // Streams multiple tracks as a single concatenated audio file via ffmpeg.
-// Supports two modes:
+// Supports three output formats:
 //   format=aac  — copy M4A/AAC audio into a fragmented MP4 (no re-encode, gapless)
 //   format=opus — re-encode to Opus in an OGG container
-//   format=mp3  — re-encode to MP3 (wide device support, fallback)
+//   format=mp3  — re-encode to MP3 CBR 192k (wide device support, fallback)
 //
 // The client passes:
-//   token, expires — HMAC from sign_album
-//   paths[]        — ordered list of relative song paths (URL-encoded)
-//   format         — "aac" (default), "opus", or "mp3"
+//   token, expires  — HMAC from sign_album
+//   paths[]         — ordered list of relative song paths (URL-encoded)
+//   format          — "aac" (default), "opus", or "mp3"
+//   total_sec       — sum of track durations (used for Content-Range total)
 //
-// Streams all album tracks as one continuous audio file via ffmpeg concat.
-// ?seek=SECONDS lets the JS layer reconnect mid-album after a dropped connection
-// without restarting from track 1.  Accept-Ranges: none prevents Safari from
-// issuing parallel probe/range requests that would spawn extra PHP processes.
+// HTTP range handling:
+//   Safari/AVFoundation ALWAYS sends a Range: bytes=0-1 probe before loading
+//   audio. We respond 206 + 2 dummy bytes (no ffmpeg). This tells AVFoundation
+//   the server supports ranges. When nginx drops the connection mid-stream,
+//   AVFoundation reconnects with Range: bytes=N- and we seek ffmpeg to N/bps
+//   seconds. JS layer no longer needs to manage reconnects.
 function handleAlbumStream() {
     set_time_limit(0);
     ignore_user_abort(false);
@@ -443,10 +446,6 @@ function handleAlbumStream() {
     $ffmpeg = '/volume1/music/ffmpeg/ffmpeg';
     if (!@is_executable($ffmpeg)) { http_response_code(500); echo 'ffmpeg not available'; exit; }
 
-    // Optional seek offset in seconds — set by the JS layer when reconnecting
-    // after a dropped connection so playback resumes mid-album, not from track 1.
-    $seekSec = isset($_GET['seek']) ? max(0.0, (float)$_GET['seek']) : 0.0;
-
     $format = isset($_GET['format']) ? strtolower($_GET['format']) : 'aac';
     if (!in_array($format, ['aac','opus','mp3'])) $format = 'aac';
 
@@ -465,32 +464,80 @@ function handleAlbumStream() {
         return strtolower(pathinfo($p, PATHINFO_EXTENSION));
     }, $fullPaths))) === 1;
 
+    // Determine MIME type and CBR bytes-per-second for Range-based seeking.
+    // AAC stream-copy has variable bitrate so byte-offset seeking isn't reliable.
+    if ($format === 'aac' && in_array($inputExt, ['m4a','aac']) && $allSameExt) {
+        $mime = 'audio/mp4';
+        $bps  = 0; // variable — skip byte-offset seek
+    } elseif ($format === 'opus') {
+        $mime = 'audio/ogg';
+        $bps  = (int)(160000 / 8); // 20000 bytes/sec CBR
+    } else {
+        $mime = 'audio/mpeg';
+        $bps  = (int)(192000 / 8); // 24000 bytes/sec CBR
+    }
+
+    // JS passes total_sec (sum of track durations) so we can include an accurate
+    // byte total in Content-Range headers, enabling AVFoundation to calculate
+    // aud.duration and aud.currentTime correctly after a range-request reconnect.
+    $totalSec   = isset($_GET['total_sec']) ? max(0.0, (float)$_GET['total_sec']) : 0.0;
+    $totalBytes = ($bps > 0 && $totalSec > 0) ? (int)($totalSec * $bps) : 0;
+
+    // ── HTTP Range handling ──────────────────────────────────────────────────────
+    // Safari probe: Range: bytes=0-1 — respond 206 + 2 dummy bytes, no ffmpeg.
+    // This confirms range support; AVFoundation then makes the real content request
+    // (Range: bytes=0-) and handles reconnects itself via Range: bytes=N- requests.
+    $startByte      = 0;
+    $seekSec        = 0.0;
+    $isRangeRequest = false;
+    $rangeHeader    = isset($_SERVER['HTTP_RANGE']) ? trim($_SERVER['HTTP_RANGE']) : '';
+    if ($rangeHeader && preg_match('/^bytes=(\d+)-(\d*)$/', $rangeHeader, $rm)) {
+        $rb1 = (int)$rm[1];
+        $rb2 = ($rm[2] !== '') ? (int)$rm[2] : -1;
+
+        // Safari probe: bytes=0-1
+        if ($rb1 === 0 && $rb2 >= 0 && $rb2 <= 1) {
+            @unlink($listFile);
+            while (ob_get_level()) ob_end_clean();
+            http_response_code(206);
+            header("Content-Type: $mime");
+            header('Accept-Ranges: bytes');
+            $rangeTotal = $totalBytes > 0 ? $totalBytes : '*';
+            header("Content-Range: bytes 0-1/$rangeTotal");
+            header('Content-Length: 2');
+            header('Cache-Control: no-store');
+            header('X-Accel-Buffering: no');
+            echo "\xff\xfb"; // 2 dummy bytes — Safari discards probe content
+            exit;
+        }
+
+        $startByte = $rb1;
+        // Map byte offset → ffmpeg seek time (CBR formats only)
+        if ($startByte > 0 && $bps > 0) {
+            $seekSec = $startByte / $bps;
+        }
+        $isRangeRequest = true;
+    }
+
     // -ss before -f concat seeks the concat demuxer directly (fast: jumps to
     // the right file without re-decoding everything from the beginning).
     $seekArgs = ($seekSec > 0) ? ['-ss', sprintf('%.3f', $seekSec)] : [];
 
     if ($format === 'aac' && in_array($inputExt, ['m4a','aac']) && $allSameExt) {
-        $mime = 'audio/mp4';
         $args = array_merge([$ffmpeg], $seekArgs, [
             '-f', 'concat', '-safe', '0', '-i', $listFile,
             '-map', '0:a', '-c', 'copy',
             '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
             '-f', 'mp4', 'pipe:1',
         ]);
-
     } elseif ($format === 'opus') {
-        $mime = 'audio/ogg';
         $args = array_merge([$ffmpeg], $seekArgs, [
             '-f', 'concat', '-safe', '0', '-i', $listFile,
             '-vn', '-c:a', 'libopus', '-b:a', '160k',
             '-application', 'audio', '-f', 'ogg', 'pipe:1',
         ]);
-
     } else {
-        // MP3 input — CBR re-encode.  -write_xing 0 / -id3v2_version 0 suppress
-        // header fields that would let Safari calculate a (wrong) total duration
-        // and issue seeked range requests against the stream.
-        $mime = 'audio/mpeg';
+        // MP3 CBR — suppress Xing/ID3 headers so Safari doesn't miscalculate duration
         $args = array_merge([$ffmpeg], $seekArgs, [
             '-f', 'concat', '-safe', '0', '-i', $listFile,
             '-vn', '-c:a', 'libmp3lame', '-b:a', '192k',
@@ -499,35 +546,25 @@ function handleAlbumStream() {
         ]);
     }
 
-    header('Cache-Control: no-store');
-    header('X-Accel-Buffering: no');
     while (ob_get_level()) ob_end_clean();
 
-    // Stream ffmpeg output directly to client
     $desc = [
         0 => ['pipe', 'r'],
         1 => ['pipe', 'w'],
-        2 => ['pipe', 'w'], // stderr captured for error reporting
+        2 => ['pipe', 'w'],
     ];
     $proc = @proc_open($args, $desc, $pipes);
     if (!$proc) { @unlink($listFile); http_response_code(500); echo 'ffmpeg launch failed'; exit; }
     fclose($pipes[0]);
 
-    // Read a small amount first — if ffmpeg fails immediately, stderr will have output
-    // before stdout gets anything, so we can catch and report the error
     stream_set_blocking($pipes[2], false);
     stream_set_blocking($pipes[1], false);
-
-    // Give ffmpeg a moment to fail (or start producing output)
-    usleep(300000); // 300ms
+    usleep(300000); // 300ms — give ffmpeg a moment to fail or start producing output
     $errOut     = stream_get_contents($pipes[2]);
     $firstChunk = stream_get_contents($pipes[1]);
 
     if (($firstChunk === '' || $firstChunk === false) && $errOut) {
-        // ffmpeg failed before producing any output — return error as plain text
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        proc_close($proc);
+        fclose($pipes[1]); fclose($pipes[2]); proc_close($proc);
         @unlink($listFile);
         header('Content-Type: text/plain');
         http_response_code(500);
@@ -535,11 +572,20 @@ function handleAlbumStream() {
         exit;
     }
 
+    // Accept-Ranges: bytes — tells Safari this server handles range requests,
+    // so AVFoundation will reconnect with Range: bytes=N- after a dropped
+    // connection instead of restarting from byte 0 (track 1).
     header("Content-Type: $mime");
-    // Accept-Ranges: none prevents Safari from issuing parallel probe/range
-    // requests that would spawn extra PHP/ffmpeg processes. Reconnect-after-drop
-    // is handled at the JS layer via the ?seek= parameter instead.
-    header('Accept-Ranges: none');
+    header('Accept-Ranges: bytes');
+    header('Cache-Control: no-store');
+    header('X-Accel-Buffering: no');
+
+    // Content-Range lets AVFoundation calculate aud.currentTime and aud.duration.
+    if ($totalBytes > 0) {
+        $endByte = $totalBytes - 1;
+        http_response_code(206);
+        header("Content-Range: bytes $startByte-$endByte/$totalBytes");
+    }
 
     if ($firstChunk) { echo $firstChunk; flush(); }
 
