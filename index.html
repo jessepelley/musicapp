@@ -2656,6 +2656,7 @@
     let userLib = {}; // { [id]: { title, artist, album, added } } — user's personal library
     let playingId = null; // stable ID of the currently playing song — never changes on view switch
     let playing = false, shuf = false, rep = 0, gaplessMode = false;
+    let origQueue = []; // natural order saved when shuffle is on
     let view = 'all', selId = null, ctxId = null, sq = '';
     // Per-view sort state: each view remembers its own sort col/dir
     // Default sort cols per view (overridable by clicking headers)
@@ -3383,11 +3384,31 @@ function setMS(song) {
 
     // Snapshot the current view's song list as the frozen queue.
     // Called when the user initiates playback from a view.
+    function shuffleArray(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
     function freezeQueue(startId) {
       const s = getViewSongs();
-      queue = s.map(x => x.id);
-      qi = startId ? queue.indexOf(startId) : 0;
-      if (qi < 0) qi = 0;
+      const natural = s.map(x => x.id);
+      if (shuf) {
+        origQueue = [...natural];
+        queue = [...natural];
+        shuffleArray(queue);
+        if (startId) {
+          const idx = queue.indexOf(startId);
+          if (idx > 0) { queue.splice(idx, 1); queue.unshift(startId); }
+        }
+        qi = 0;
+      } else {
+        origQueue = [];
+        queue = natural;
+        qi = startId ? queue.indexOf(startId) : 0;
+        if (qi < 0) qi = 0;
+      }
       clearPrefetch();
       updCounts();
       console.log(`[Queue] Frozen from view="${view}" — ${queue.length} songs, starting at qi=${qi} id=${startId || queue[0]}`);
@@ -3398,7 +3419,7 @@ function setMS(song) {
         const skippedId = queue[qi];
         if (aud.currentTime > 3) recordSkip(skippedId);
       }
-      qi = shuf ? Math.floor(Math.random() * queue.length) : (qi + 1) % queue.length;
+      qi = (qi + 1) % queue.length;
       playingId = queue[qi];
       playSong(queue[qi]);
     }
@@ -3409,7 +3430,7 @@ function setMS(song) {
         const skippedId = queue[qi];
         if (aud.currentTime > 3) recordSkip(skippedId);
       }
-      qi = shuf ? Math.floor(Math.random() * queue.length) : (qi - 1 + queue.length) % queue.length;
+      qi = (qi - 1 + queue.length) % queue.length;
       playingId = queue[qi];
       playSong(queue[qi]);
     }
@@ -4792,6 +4813,24 @@ function setMS(song) {
       document.getElementById(btnId).addEventListener('click', function () {
         shuf = !shuf; this.classList.toggle('on', shuf);
         ['shuf', 'np-shuf'].forEach(id => { if (id !== btnId) document.getElementById(id)?.classList.toggle('on', shuf); });
+        if (shuf) {
+          // Toggle ON: save natural order, shuffle remaining songs after current
+          origQueue = [...queue];
+          const currentId = queue[qi];
+          const rest = queue.filter((_, i) => i !== qi);
+          shuffleArray(rest);
+          queue = [currentId, ...rest];
+          qi = 0;
+        } else {
+          // Toggle OFF: restore natural order, find current song position
+          if (origQueue.length) {
+            const currentId = queue[qi];
+            queue = [...origQueue];
+            origQueue = [];
+            qi = queue.indexOf(currentId);
+            if (qi < 0) qi = 0;
+          }
+        }
       });
     }
     function wireRepeat(btnId) {
