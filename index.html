@@ -2657,6 +2657,7 @@
     let playingId = null; // stable ID of the currently playing song — never changes on view switch
     let playing = false, shuf = false, rep = 0, gaplessMode = false;
     let origQueue = []; // natural order saved when shuffle is on
+    let playbackView = 'all'; // view active when playback was last initiated via freezeQueue
     let view = 'all', selId = null, ctxId = null, sq = '';
     // Per-view sort state: each view remembers its own sort col/dir
     // Default sort cols per view (overridable by clicking headers)
@@ -2970,41 +2971,60 @@
 
     function renderCatalogResults(q) {
       const el = document.getElementById('catalog-results');
-      if (!q.trim()) {
-        el.innerHTML = '<div class="cr-empty">Search songs, artists, and albums</div>';
-        return;
-      }
-      const lq = q.toLowerCase();
-      const matched = songs.filter(s =>
-        (s.title  || '').toLowerCase().includes(lq) ||
-        (s.artist || '').toLowerCase().includes(lq) ||
-        (s.album  || '').toLowerCase().includes(lq) ||
-        (s.album_artist || '').toLowerCase().includes(lq)
-      );
+      const lq = q.trim().toLowerCase();
+      const browsing = !lq;
 
-      if (!matched.length) {
-        el.innerHTML = '<div class="cr-empty">No results found.<br><br><button class="tb accent" onclick="closeCatalog()" style="margin-top:8px">Done</button></div>';
-        return;
-      }
-
-      // Separate into songs, artists, albums
-      const titleMatches  = matched.filter(s => (s.title || '').toLowerCase().includes(lq));
+      let matched, titleMatches;
       const artistSet = new Map(), albumSet = new Map();
 
-      matched.forEach(s => {
-        const art = s.artist || '';
-        if (art && art.toLowerCase().includes(lq) && !(s.title || '').toLowerCase().includes(lq)) {
-          if (!artistSet.has(art)) artistSet.set(art, s);
+      if (browsing) {
+        // Show full catalog grouped by artists and albums
+        matched = songs;
+        titleMatches = [];
+        [...songs].sort((a, b) => (a.artist || '').localeCompare(b.artist || '')).forEach(s => {
+          const art = s.artist || '';
+          if (art && !artistSet.has(art)) artistSet.set(art, s);
+          const alb = s.album || '';
+          if (alb) {
+            const key = alb + '|' + (s.album_artist || s.artist || '');
+            if (!albumSet.has(key)) albumSet.set(key, s);
+          }
+        });
+        if (!artistSet.size && !albumSet.size) {
+          el.innerHTML = '<div class="cr-empty">No songs in library</div>';
+          return;
         }
-        // Albums: match on album name OR album_artist
-        const alb = s.album || '';
-        const aa = s.album_artist || s.artist || '';
-        const albMatches = alb.toLowerCase().includes(lq) || aa.toLowerCase().includes(lq);
-        if (albMatches && alb) {
-          const key = alb + '|' + aa;
-          if (!albumSet.has(key)) albumSet.set(key, s);
+      } else {
+        matched = songs.filter(s =>
+          (s.title  || '').toLowerCase().includes(lq) ||
+          (s.artist || '').toLowerCase().includes(lq) ||
+          (s.album  || '').toLowerCase().includes(lq) ||
+          (s.album_artist || '').toLowerCase().includes(lq)
+        );
+
+        if (!matched.length) {
+          el.innerHTML = '<div class="cr-empty">No results found.<br><br><button class="tb accent" onclick="closeCatalog()" style="margin-top:8px">Done</button></div>';
+          return;
         }
-      });
+
+        // Separate into songs, artists, albums
+        titleMatches = matched.filter(s => (s.title || '').toLowerCase().includes(lq));
+
+        matched.forEach(s => {
+          const art = s.artist || '';
+          if (art && art.toLowerCase().includes(lq) && !(s.title || '').toLowerCase().includes(lq)) {
+            if (!artistSet.has(art)) artistSet.set(art, s);
+          }
+          // Albums: match on album name OR album_artist
+          const alb = s.album || '';
+          const aa = s.album_artist || s.artist || '';
+          const albMatches = alb.toLowerCase().includes(lq) || aa.toLowerCase().includes(lq);
+          if (albMatches && alb) {
+            const key = alb + '|' + aa;
+            if (!albumSet.has(key)) albumSet.set(key, s);
+          }
+        });
+      }
 
       const artistRows = [...artistSet.values()];
       const albumRows  = [...albumSet.values()];
@@ -3164,10 +3184,11 @@
     document.getElementById('np-show-in-lib').addEventListener('click', () => showInLibrary());
     function showInLibrary() {
       const cs = curSong(); if (!cs) return;
-      // Switch to Songs view without touching the frozen queue
-      if (view !== 'all') {
-        view = 'all';
-        document.querySelectorAll('.ni').forEach(el => el.classList.toggle('active', el.dataset.view === 'all'));
+      // Navigate back to the view where playback was initiated
+      const target = playbackView || 'all';
+      if (view !== target) {
+        view = target;
+        document.querySelectorAll('.ni').forEach(el => el.classList.toggle('active', el.dataset.view === target));
       }
       selId = cs.id;
       renderList(); renderSB();
@@ -3175,9 +3196,10 @@
       setTimeout(() => {
         const row = document.querySelector(`.sr[data-id="${CSS.escape(String(cs.id))}"]`);
         if (row) { row.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
-        else { console.warn('[showInLibrary] Song not found in Songs view — may not be in library'); }
+        else { console.warn('[showInLibrary] Song not found in view — may not be in library'); }
       }, 50);
-      toast('Showing in Songs');
+      const pl = pls.find(p => p.id === target);
+      toast(pl ? `Showing in "${pl.name}"` : 'Showing in Songs');
     }
 
 
@@ -3392,6 +3414,7 @@ function setMS(song) {
       return arr;
     }
     function freezeQueue(startId) {
+      playbackView = view;
       const s = getViewSongs();
       const natural = s.map(x => x.id);
       if (shuf) {
@@ -4580,7 +4603,7 @@ function setMS(song) {
       openNPPanel();
     });
     document.getElementById('mob-info').addEventListener('click', e => {
-      openNPPanel();
+      if (playingId) showInLibrary();
     });
     document.getElementById('np-panel-bar').addEventListener('click', closeNPPanel);
     document.getElementById('np-panel-close').addEventListener('click', closeNPPanel);
@@ -4831,6 +4854,8 @@ function setMS(song) {
             if (qi < 0) qi = 0;
           }
         }
+        renderList(); updateUpNextBar();
+        toast(shuf ? 'Shuffle on' : 'Shuffle off');
       });
     }
     function wireRepeat(btnId) {
