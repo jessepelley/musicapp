@@ -2961,12 +2961,12 @@
       // won't appear. Calling focus() right here (overlay is already display:flex from
       // classList.add above) satisfies that requirement.
       input.focus();
+      renderCatalogResults('');
     }
     function closeCatalog() {
       catalogOpen = false;
       document.getElementById('catalog-overlay').classList.remove('open');
       document.getElementById('catalog-input').value = '';
-      document.getElementById('catalog-results').innerHTML = '<div class="cr-empty">Search songs, artists, and albums</div>';
     }
 
     function renderCatalogResults(q) {
