@@ -2778,6 +2778,28 @@
       } catch { return null; }
     }
 
+    // ── HLS ALBUM STREAM ──────────────────────────────────────────────────────────
+    // Requests the server to generate an HLS playlist + segments for the album.
+    // Returns the URL to the .m3u8 playlist, which Safari plays natively via <audio>.
+    // This avoids long-lived HTTP responses that caused timeouts with album_stream.
+    let _hlsSession = null; // { session, token, expires }
+    async function hlsAlbumUrl(trackPaths) {
+      if (!cfg.url || !cfg.apiKey || !online) return null;
+      try {
+        const d = await apost('hls_generate', { paths: trackPaths });
+        if (!d.session || !d.token) return null;
+        _hlsSession = { session: d.session, token: d.token, expires: d.expires };
+        const params = new URLSearchParams({
+          action: 'hls_serve',
+          session: d.session,
+          file: d.playlist,
+          token: d.token,
+          expires: d.expires,
+        });
+        return apiBase() + '/api.php?' + params.toString();
+      } catch (e) { console.warn('[HLS] generate failed:', e); return null; }
+    }
+
     // ── SYNC ──────────────────────────────────────────────────────────────────────
     async function syncLib() {
       if (!cfg.url || !cfg.apiKey) { showSet(); return; }
@@ -3223,8 +3245,10 @@
           curUrl = URL.createObjectURL(cached.blob); src = curUrl;
           setBadge('', '● CACHED', song);
         } else if (online && cfg.url) {
-          // ── ALBUM STREAM: merge remaining tracks server-side for gapless iOS playback ──
-          // Only applies when gapless mode is enabled and tracks are not shuffled.
+          // ── HLS ALBUM STREAM: gapless playback via HLS segments ──
+          // When gapless mode is enabled, generate an HLS playlist for the remaining
+          // album tracks. Safari plays .m3u8 natively; short segments start quickly
+          // and avoid the server timeout issues of the old album_stream approach.
           let usedAlbumStream = false;
           if (gaplessMode && !shuf && rep !== 2) {
             try {
@@ -3235,19 +3259,26 @@
                 .filter(s => s && s.album === song.album && (s.album_artist || s.artist) === (song.album_artist || song.artist));
               if (remaining.length > 1) {
                 const albumPaths = remaining.map(s => s.path);
-                const totalSec = remaining.reduce((s, sg) => s + (sg.duration || 0), 0);
-                const albumSrc = await albumStreamUrl(albumPaths, totalSec);
-                if (albumSrc) {
-                  src = albumSrc;
+                const hlsSrc = await hlsAlbumUrl(albumPaths);
+                if (hlsSrc) {
+                  src = hlsSrc;
                   _activeAlbumStreamSongIds = remaining.map(s => s.id);
-                  _albumStreamPaths  = albumPaths;
-                  setBadge('stream', '⋯ ALBUM', song);
+                  _albumStreamPaths = albumPaths;
+                  // Build cumulative duration map for per-track metadata updates
+                  _hlsTrackBoundaries = [];
+                  let cumulative = 0;
+                  for (const r of remaining) {
+                    _hlsTrackBoundaries.push({ id: r.id, start: cumulative, end: cumulative + (r.duration || 0) });
+                    cumulative += (r.duration || 0);
+                  }
+                  _hlsCurrentTrackIdx = 0;
+                  setBadge('stream', '⋯ HLS', song);
                   usedAlbumStream = true;
                 }
               }
             } catch { /* fall through to normal stream */ }
           }
-          if (!usedAlbumStream) { _activeAlbumStreamSongIds = null; _albumStreamPaths = null; }
+          if (!usedAlbumStream) { _activeAlbumStreamSongIds = null; _albumStreamPaths = null; _hlsTrackBoundaries = null; _hlsCurrentTrackIdx = -1; }
           if (!usedAlbumStream) {
             try { src = await streamUrl(song); setBadge('stream', '⋯ STREAMING', song); }
             catch { toast('Stream failed'); return; }
@@ -3398,7 +3429,15 @@ function setMS(song) {
   navigator.mediaSession.setActionHandler('pause', () => { aud.pause(); });
   navigator.mediaSession.setActionHandler('previoustrack', () => playPrev(true));
   navigator.mediaSession.setActionHandler('nexttrack', () => playNext(true));
-  navigator.mediaSession.setActionHandler('seekto', d => { if (d.seekTime != null) aud.currentTime = d.seekTime; });
+  navigator.mediaSession.setActionHandler('seekto', d => {
+    if (d.seekTime == null) return;
+    if (_hlsTrackBoundaries && _hlsCurrentTrackIdx >= 0) {
+      const b = _hlsTrackBoundaries[_hlsCurrentTrackIdx];
+      aud.currentTime = b.start + Math.min(d.seekTime, b.end - b.start);
+    } else {
+      aud.currentTime = d.seekTime;
+    }
+  });
 }
 
     // curSong uses playingId (stable string) not qi (index that changes on queue rebuild)
@@ -3442,11 +3481,32 @@ function setMS(song) {
         const skippedId = queue[qi];
         if (aud.currentTime > 3) recordSkip(skippedId);
       }
+      // During HLS album playback, seek to next track within the stream
+      if (_hlsTrackBoundaries && _hlsCurrentTrackIdx >= 0 && _hlsCurrentTrackIdx < _hlsTrackBoundaries.length - 1) {
+        const nextBoundary = _hlsTrackBoundaries[_hlsCurrentTrackIdx + 1];
+        aud.currentTime = nextBoundary.start + 0.1;
+        return;
+      }
       qi = (qi + 1) % queue.length;
       playingId = queue[qi];
       playSong(queue[qi]);
     }
     function playPrev(userInitiated = false) {
+      // During HLS album playback, seek to start of current or previous track
+      if (_hlsTrackBoundaries && _hlsCurrentTrackIdx >= 0) {
+        const curBoundary = _hlsTrackBoundaries[_hlsCurrentTrackIdx];
+        const trackElapsed = aud.currentTime - curBoundary.start;
+        if (trackElapsed > 3) {
+          // More than 3s into track — restart current track
+          aud.currentTime = curBoundary.start + 0.05;
+          return;
+        } else if (_hlsCurrentTrackIdx > 0) {
+          // Go to previous track
+          const prevBoundary = _hlsTrackBoundaries[_hlsCurrentTrackIdx - 1];
+          aud.currentTime = prevBoundary.start + 0.05;
+          return;
+        }
+      }
       if (aud.currentTime > 3) { aud.currentTime = 0; return; }
       if (!queue.length) return;
       if (userInitiated && playing && qi >= 0) {
@@ -3462,14 +3522,18 @@ function setMS(song) {
 
     let _activeAlbumStreamSongIds = null; // track which songs are covered by current album stream
     let _albumStreamPaths  = null;        // track paths for stream state tracking
+    let _hlsTrackBoundaries = null;       // [{id, start, end}, ...] cumulative seconds for each track in HLS stream
+    let _hlsCurrentTrackIdx = -1;         // index into _hlsTrackBoundaries of the currently audible track
 
     function _onEnded() {
       if (rep === 2) { aud.currentTime = 0; aud.play(); return; }
       if (_activeAlbumStreamSongIds) {
-        // Album stream ended — the entire merged album is done. Advance past all covered songs.
+        // Album stream (HLS or legacy) ended — the entire merged album is done.
+        // Advance past all covered songs.
         const lastId = _activeAlbumStreamSongIds[_activeAlbumStreamSongIds.length - 1];
         const lastIdx = queue.indexOf(lastId);
         _activeAlbumStreamSongIds = null; _albumStreamPaths = null;
+        _hlsTrackBoundaries = null; _hlsCurrentTrackIdx = -1; _hlsSession = null;
         if (lastIdx >= 0 && lastIdx + 1 < queue.length) {
           qi = lastIdx;
           playingId = queue[qi + 1];
@@ -3483,7 +3547,15 @@ function setMS(song) {
     }
     function _onAudError() {
       if (_activeAlbumStreamSongIds) {
-        console.log('[GaplessStream] audio error during album stream, code:', aud.error?.code);
+        console.log('[HLS/Stream] audio error during album stream, code:', aud.error?.code);
+        // Fall back to single-track streaming on HLS error
+        if (_hlsTrackBoundaries) {
+          console.log('[HLS] Falling back to single-track streaming');
+          const fallbackId = playingId;
+          _activeAlbumStreamSongIds = null; _albumStreamPaths = null;
+          _hlsTrackBoundaries = null; _hlsCurrentTrackIdx = -1; _hlsSession = null;
+          if (fallbackId) playSong(fallbackId);
+        }
       }
     }
     function _onPlay() {
@@ -3496,6 +3568,67 @@ function setMS(song) {
       const curTime = aud.currentTime;
       const dur     = aud.duration;
       const isFinite_ = dur && isFinite(dur) && dur > 0;
+
+      // ── HLS track boundary detection ──
+      // When playing an HLS album stream, detect when playback crosses from one
+      // track to the next and update now-playing metadata, volume (ReplayGain),
+      // and queue position accordingly.
+      if (_hlsTrackBoundaries && _hlsTrackBoundaries.length > 0) {
+        let newIdx = _hlsCurrentTrackIdx;
+        for (let i = 0; i < _hlsTrackBoundaries.length; i++) {
+          const b = _hlsTrackBoundaries[i];
+          if (curTime >= b.start && (i === _hlsTrackBoundaries.length - 1 || curTime < _hlsTrackBoundaries[i + 1].start)) {
+            newIdx = i; break;
+          }
+        }
+        if (newIdx !== _hlsCurrentTrackIdx && newIdx >= 0) {
+          _hlsCurrentTrackIdx = newIdx;
+          const trackId = _hlsTrackBoundaries[newIdx].id;
+          const trackSong = songs.find(s => s.id === trackId);
+          if (trackSong) {
+            // Update now-playing display and MediaSession
+            playingId = trackId;
+            const newQi = queue.indexOf(trackId);
+            if (newQi >= 0) qi = newQi;
+            updateAllNP(trackSong);
+            setMS(trackSong);
+            aud.volume = rgVolume(trackSong);
+            schedulePlayCount(trackId);
+            updNPActions();
+            if (!getMeta(trackId).albumArtUrl) fetchArtForSong(trackSong).then(() => { updateAllNP(trackSong); setMS(trackSong); });
+            renderList();
+          }
+        }
+        // Show per-track progress within the HLS stream
+        if (newIdx >= 0 && newIdx < _hlsTrackBoundaries.length) {
+          const b = _hlsTrackBoundaries[newIdx];
+          const trackElapsed = curTime - b.start;
+          const trackDur = b.end - b.start;
+          if (trackDur > 0) {
+            const p = (trackElapsed / trackDur) * 100;
+            document.getElementById('pf').style.width = p + '%';
+            document.getElementById('pt').style.left = p + '%';
+            document.getElementById('mob-pf').style.width = p + '%';
+            document.getElementById('np-panel-pf').style.width = p + '%';
+            try {
+              if (aud.buffered.length > 0) {
+                const buffEnd = aud.buffered.end(aud.buffered.length - 1);
+                const buffPct = Math.min(100, ((buffEnd - b.start) / trackDur) * 100);
+                const bf = document.getElementById('prog-buffered');
+                if (bf) bf.style.width = buffPct + '%';
+              }
+            } catch {}
+          }
+          document.getElementById('tc').textContent = fmt(trackElapsed);
+          document.getElementById('np-panel-cur').textContent = fmt(trackElapsed);
+          document.getElementById('tt').textContent = fmt(trackDur);
+          document.getElementById('np-panel-tot').textContent = fmt(trackDur);
+          if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && trackDur > 0)
+            try { navigator.mediaSession.setPositionState({ duration: trackDur, playbackRate: 1, position: trackElapsed }); } catch {}
+          return; // skip default progress handling
+        }
+      }
+
       if (isFinite_) {
         const p = (curTime / dur) * 100;
         document.getElementById('pf').style.width = p + '%';
@@ -4616,7 +4749,13 @@ function setMS(song) {
 
     document.getElementById('np-panel-prog').addEventListener('click', e => {
       const r = e.currentTarget.getBoundingClientRect();
-      if (aud.duration) aud.currentTime = ((e.clientX - r.left) / r.width) * aud.duration;
+      const pct = (e.clientX - r.left) / r.width;
+      if (_hlsTrackBoundaries && _hlsCurrentTrackIdx >= 0) {
+        const b = _hlsTrackBoundaries[_hlsCurrentTrackIdx];
+        aud.currentTime = b.start + pct * (b.end - b.start);
+      } else if (aud.duration) {
+        aud.currentTime = pct * aud.duration;
+      }
     });
     document.getElementById('np-panel-vt').addEventListener('click', e => {
       const r = e.currentTarget.getBoundingClientRect();
@@ -4876,7 +5015,13 @@ function setMS(song) {
 
     document.getElementById('prog').addEventListener('click', e => {
       const r = e.currentTarget.getBoundingClientRect();
-      if (aud.duration) aud.currentTime = ((e.clientX - r.left) / r.width) * aud.duration;
+      const pct = (e.clientX - r.left) / r.width;
+      if (_hlsTrackBoundaries && _hlsCurrentTrackIdx >= 0) {
+        const b = _hlsTrackBoundaries[_hlsCurrentTrackIdx];
+        aud.currentTime = b.start + pct * (b.end - b.start);
+      } else if (aud.duration) {
+        aud.currentTime = pct * aud.duration;
+      }
     });
     document.getElementById('vt').addEventListener('click', e => {
       const r = e.currentTarget.getBoundingClientRect();
@@ -4891,8 +5036,22 @@ function setMS(song) {
       if (e.code === 'Space') { e.preventDefault(); document.getElementById('pbtn').click(); }
       if (e.code === 'ArrowRight' && e.metaKey) playNext(true);
       if (e.code === 'ArrowLeft' && e.metaKey) playPrev(true);
-      if (e.code === 'ArrowRight') aud.currentTime = Math.min(aud.duration || 0, aud.currentTime + 5);
-      if (e.code === 'ArrowLeft') aud.currentTime = Math.max(0, aud.currentTime - 5);
+      if (e.code === 'ArrowRight') {
+        if (_hlsTrackBoundaries && _hlsCurrentTrackIdx >= 0) {
+          const b = _hlsTrackBoundaries[_hlsCurrentTrackIdx];
+          aud.currentTime = Math.min(b.end - 0.1, aud.currentTime + 5);
+        } else {
+          aud.currentTime = Math.min(aud.duration || 0, aud.currentTime + 5);
+        }
+      }
+      if (e.code === 'ArrowLeft') {
+        if (_hlsTrackBoundaries && _hlsCurrentTrackIdx >= 0) {
+          const b = _hlsTrackBoundaries[_hlsCurrentTrackIdx];
+          aud.currentTime = Math.max(b.start, aud.currentTime - 5);
+        } else {
+          aud.currentTime = Math.max(0, aud.currentTime - 5);
+        }
+      }
       if (e.key === 'Escape') { closeNPPanel(); }
     });
 

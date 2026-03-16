@@ -1,0 +1,7 @@
+hls_sessions/
+artcache/
+.library-cache.json
+.meta-*.json
+.userlib-*.json
+.playlists-*.json
+.nowplaying-*.json
