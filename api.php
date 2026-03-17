@@ -692,14 +692,14 @@ function handleHlsGenerate() {
     // Build ffmpeg command for HLS output
     // Use AAC codec copy for m4a/aac inputs, re-encode otherwise
     $playlistPath = $sessionDir . '/playlist.m3u8';
-    $segmentPattern = $sessionDir . '/seg%03d.ts';
+    $segmentPattern = $sessionDir . '/seg%03d.m4s';
 
     $canCopyAac = in_array($inputExt, ['m4a', 'aac']) && $allSameExt;
 
     $args = [$ffmpeg, '-f', 'concat', '-safe', '0', '-i', $listFile];
 
     if ($canCopyAac) {
-        // Copy AAC audio, mux into MPEG-TS segments
+        // Copy AAC audio, mux into fMP4 segments (preserves gapless metadata)
         $args = array_merge($args, [
             '-map', '0:a', '-c:a', 'copy',
         ]);
@@ -710,12 +710,16 @@ function handleHlsGenerate() {
         ]);
     }
 
-    // HLS output options
+    // HLS output options — use fMP4 segments instead of MPEG-TS for gapless playback.
+    // fMP4 preserves edit lists and sample-accurate timing, avoiding the
+    // inter-segment silence gaps inherent in MPEG-TS audio framing.
     $args = array_merge($args, [
         '-f', 'hls',
-        '-hls_time', '6',              // ~6 second segments
-        '-hls_list_size', '0',         // keep all segments in playlist (VOD, not live)
-        '-hls_playlist_type', 'vod',   // full album, not rolling window
+        '-hls_time', '6',
+        '-hls_list_size', '0',
+        '-hls_playlist_type', 'vod',
+        '-hls_segment_type', 'fmp4',
+        '-hls_fmp4_init_filename', 'init.mp4',
         '-hls_segment_filename', $segmentPattern,
         '-hls_flags', 'independent_segments',
         $playlistPath,
@@ -806,6 +810,10 @@ function handleHlsServe() {
         $mime = 'application/vnd.apple.mpegurl';
     } elseif ($ext === 'ts') {
         $mime = 'video/mp2t';
+    } elseif ($ext === 'm4s') {
+        $mime = 'audio/mp4';
+    } elseif ($ext === 'mp4') {
+        $mime = 'audio/mp4';
     } else {
         $mime = 'application/octet-stream';
     }
@@ -832,7 +840,8 @@ function handleHlsServe() {
             'token'   => $token,
             'expires' => $expires,
         ]);
-        $content = preg_replace_callback('/^(seg\d+\.ts)$/m', function($m) use ($baseUrl, $params) {
+        // Rewrite both init segment (init.mp4) and media segments (seg*.m4s) to full URLs
+        $content = preg_replace_callback('/^((?:seg\d+\.m4s|init\.mp4|seg\d+\.ts))$/m', function($m) use ($baseUrl, $params) {
             return $baseUrl . '?' . $params . '&file=' . $m[1];
         }, $content);
         header('Content-Length: ' . strlen($content));
