@@ -90,6 +90,11 @@ elseif  ($action === 'get_playlists')   handleGetPlaylists();
 elseif  ($action === 'save_playlists')  handleSavePlaylists();
 elseif  ($action === 'get_meta')        handleGetMeta();
 elseif  ($action === 'save_meta')       handleSaveMeta();
+elseif  ($action === 'nowplaying_get')    handleNowPlayingGet();
+elseif  ($action === 'nowplaying_set')    handleNowPlayingSet();
+elseif  ($action === 'albumart')          handleAlbumArt();
+elseif  ($action === 'save_search_miss')  handleSaveSearchMiss();
+elseif  ($action === 'get_search_misses') handleGetSearchMisses();
 elseif  ($action === 'nowplaying_get')  handleNowPlayingGet();
 elseif  ($action === 'nowplaying_set')  handleNowPlayingSet();
 elseif  ($action === 'albumart')        handleAlbumArt();
@@ -243,6 +248,51 @@ function handleSaveMeta() {
     }
     echo json_encode(['ok' => true]);
 }
+// ─── SEARCH MISS LOG ─────────────────────────────────────────────────────────
+// Shared across all users (not per-user) so the owner sees all requests.
+define('SEARCH_MISSES_FILE', __DIR__ . '/search-misses.json');
+function readSearchMisses() {
+    if (!file_exists(SEARCH_MISSES_FILE)) return [];
+    $raw = @file_get_contents(SEARCH_MISSES_FILE);
+    return $raw ? (json_decode($raw, true) ?: []) : [];
+}
+function writeSearchMisses($data) {
+    return @file_put_contents(SEARCH_MISSES_FILE, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT), LOCK_EX);
+}
+function handleSaveSearchMiss() {
+    header('Content-Type: application/json; charset=utf-8');
+    $body = file_get_contents('php://input');
+    $data = $body ? json_decode($body, true) : null;
+    if (!$data || empty($data['query'])) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid payload']);
+        return;
+    }
+    $query = trim($data['query']);
+    $ts    = isset($data['ts']) ? (int)$data['ts'] : (int)(microtime(true) * 1000);
+    if (!$query) { echo json_encode(['ok' => true]); return; }
+    $misses = readSearchMisses();
+    $lquery = mb_strtolower($query);
+    $found  = false;
+    foreach ($misses as &$m) {
+        if (mb_strtolower($m['query']) === $lquery) {
+            $m['count']++;
+            $m['lastTs'] = $ts;
+            $found = true;
+            break;
+        }
+    }
+    unset($m);
+    if (!$found) $misses[] = ['query' => $query, 'count' => 1, 'lastTs' => $ts];
+    usort($misses, fn($a, $b) => $b['count'] - $a['count']);
+    writeSearchMisses($misses);
+    echo json_encode(['ok' => true]);
+}
+function handleGetSearchMisses() {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['misses' => readSearchMisses()]);
+}
+
 // ─── ALBUM ART (iTunes API proxy + disk cache) ────────────────────────────────
 function handleAlbumArt() {
     header('Content-Type: application/json; charset=utf-8');
