@@ -2132,6 +2132,27 @@
       font-size: 13px;
       padding: 40px 20px;
     }
+    .cr-request-row { cursor: default; }
+    .cr-request-row:hover, .cr-request-row:active { background: none; }
+    .cr-lfm-key-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      margin-top: 8px;
+    }
+    .cr-lfm-key-input {
+      flex: 1;
+      font-size: 11px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 5px 8px;
+      color: var(--text);
+      min-width: 0;
+    }
+    .cr-lfm-key-input:focus { border-color: var(--accent); outline: none; }
 
     /* ── MISSING SONG ROW ──────────────────────────────────────────────────── */
     .sr.missing {
@@ -2839,6 +2860,28 @@
     }
 
     function getMeta(id) { return songMeta[String(id)] || {}; }
+
+    // ── SEARCH MISS LOG ───────────────────────────────────────────────────────────
+    function getSearchMisses() {
+      try { return JSON.parse(localStorage.getItem('jb-search-misses')) || []; } catch { return []; }
+    }
+    function recordSearchMiss(q) {
+      const key = q.trim().toLowerCase();
+      if (!key) return;
+      const misses = getSearchMisses();
+      const existing = misses.find(m => m.query.toLowerCase() === key);
+      if (existing) { existing.count++; existing.lastTs = Date.now(); }
+      else misses.push({ query: q.trim(), count: 1, lastTs: Date.now() });
+      misses.sort((a, b) => b.count - a.count);
+      try { localStorage.setItem('jb-search-misses', JSON.stringify(misses)); } catch { }
+      if (cfg.url && cfg.apiKey && online) {
+        apost('save_search_miss', { query: q.trim(), ts: Date.now() }).catch(() => {});
+      }
+    }
+    function dismissSearchMiss(query) {
+      const misses = getSearchMisses().filter(m => m.query.toLowerCase() !== query.toLowerCase());
+      try { localStorage.setItem('jb-search-misses', JSON.stringify(misses)); } catch { }
+    }
     function isStarred(id) { return !!getMeta(id).starred; }
     function playCount(id) { return getMeta(id).playCount || 0; }
     function lastPlayed(id) { return getMeta(id).lastPlayed || 0; }
@@ -3003,6 +3046,7 @@
         );
 
         if (!matched.length) {
+          recordSearchMiss(lq);
           el.innerHTML = '<div class="cr-empty">No results found.<br><br><button class="tb accent" onclick="closeCatalog()" style="margin-top:8px">Done</button></div>';
           return;
         }
@@ -3115,8 +3159,198 @@
       mkSection('Artists', artistRows, 'artist');
       mkSection('Albums', albumRows, 'album');
 
+      // ── BROWSE-ONLY SECTIONS ─────────────────────────────────────────────────
+      if (browsing) {
+        // "You Might Like" — catalog artists with unAdded songs, ranked by count
+        const libIds = new Set(Object.keys(userLib));
+        const artistPlays = {};
+        for (const id of libIds) {
+          const m = getMeta(id);
+          if (!m.playCount) continue;
+          const s = songs.find(x => String(x.id) === String(id));
+          if (s?.artist) artistPlays[s.artist] = (artistPlays[s.artist] || 0) + m.playCount;
+        }
+        if (Object.keys(artistPlays).length) {
+          const unaddedMap = new Map();
+          songs.forEach(s => {
+            if (!s.artist || libIds.has(String(s.id))) return;
+            const e = unaddedMap.get(s.artist);
+            if (!e) unaddedMap.set(s.artist, { count: 1, sample: s });
+            else e.count++;
+          });
+          const suggestions = [...unaddedMap.entries()]
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 10)
+            .map(([, v]) => v.sample);
+          mkSection('You Might Like', suggestions, 'artist');
+        }
+
+        // Search Requests
+        const misses = getSearchMisses().slice(0, 20);
+        if (misses.length) {
+          const rlbl = document.createElement('div');
+          rlbl.className = 'cr-section-label';
+          rlbl.textContent = 'Search Requests';
+          frag.appendChild(rlbl);
+          misses.forEach(({ query, count }) => {
+            const row = document.createElement('div');
+            row.className = 'cr-row cr-request-row';
+            row.innerHTML = `
+              <div class="cr-info">
+                <div class="cr-title">${esc(query)}</div>
+                <div class="cr-sub">searched ${count} time${count !== 1 ? 's' : ''} — not in catalog</div>
+              </div>
+              <button class="cr-add-btn" title="Dismiss" style="font-size:14px;line-height:1">✕</button>`;
+            row.querySelector('.cr-add-btn').addEventListener('click', e => {
+              e.stopPropagation();
+              dismissSearchMiss(query);
+              row.remove();
+            });
+            frag.appendChild(row);
+          });
+        }
+
+        // Last.fm similar artists — async, populates after render
+        const lfmContainer = document.createElement('div');
+        frag.appendChild(lfmContainer);
+
+        // Last.fm API key setup bar
+        const lfmKey = localStorage.getItem('jb-lfm-key') || '';
+        const keyBar = document.createElement('div');
+        keyBar.className = 'cr-lfm-key-bar';
+        keyBar.innerHTML = `<span style="color:var(--text3);font-size:11px;white-space:nowrap">Last.fm key:</span>
+          <input class="cr-lfm-key-input" type="text" value="${esc(lfmKey)}" placeholder="optional — enables Similar Artists suggestions" spellcheck="false" autocomplete="off">`;
+        const keyInput = keyBar.querySelector('.cr-lfm-key-input');
+        keyInput.addEventListener('change', () => {
+          const val = keyInput.value.trim();
+          if (val) localStorage.setItem('jb-lfm-key', val);
+          else localStorage.removeItem('jb-lfm-key');
+          renderLfmSection(lfmContainer, val);
+        });
+        frag.appendChild(keyBar);
+
+        if (lfmKey) renderLfmSection(lfmContainer, lfmKey);
+      }
+
       el.innerHTML = '';
       el.appendChild(frag);
+    }
+
+    async function renderLfmSection(container, apiKey) {
+      container.innerHTML = '';
+      if (!apiKey) return;
+
+      // Top 3 played artists in library
+      const libIds = new Set(Object.keys(userLib));
+      const artistPlays = {};
+      for (const id of libIds) {
+        const m = getMeta(id);
+        if (!m.playCount) continue;
+        const s = songs.find(x => String(x.id) === String(id));
+        if (s?.artist) artistPlays[s.artist] = (artistPlays[s.artist] || 0) + m.playCount;
+      }
+      const topArtists = Object.entries(artistPlays)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([artist]) => artist);
+      if (!topArtists.length) return;
+
+      container.innerHTML = '<div class="cr-section-label">Similar Artists <span style="opacity:.5;font-weight:400;text-transform:none;font-size:10px">— loading…</span></div>';
+
+      const similarNames = new Set();
+      try {
+        await Promise.all(topArtists.map(async artist => {
+          const url = `https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=${encodeURIComponent(artist)}&api_key=${encodeURIComponent(apiKey)}&limit=10&format=json`;
+          const resp = await fetch(url);
+          if (!resp.ok) return;
+          const data = await resp.json();
+          (data.similarartists?.artist || []).forEach(a => similarNames.add(a.name));
+        }));
+      } catch {
+        container.innerHTML = '<div class="cr-section-label" style="color:var(--red)">Last.fm — check API key</div>';
+        return;
+      }
+      if (!similarNames.size) { container.innerHTML = ''; return; }
+
+      // Cross-reference names against catalog
+      const catalogByArtistLower = new Map();
+      songs.forEach(s => {
+        const k = (s.artist || '').toLowerCase();
+        if (k && !catalogByArtistLower.has(k)) catalogByArtistLower.set(k, s);
+      });
+      const libArtistNames = new Set(
+        songs.filter(s => inLib(s.id)).map(s => (s.artist || '').toLowerCase())
+      );
+
+      const inCatalog = [], notInCatalog = [];
+      for (const name of similarNames) {
+        const lname = name.toLowerCase();
+        if (libArtistNames.has(lname)) continue; // already fully in lib
+        const sample = catalogByArtistLower.get(lname);
+        if (sample) inCatalog.push(sample);
+        else notInCatalog.push(name);
+      }
+
+      container.innerHTML = '';
+      const frag2 = document.createDocumentFragment();
+
+      if (inCatalog.length) {
+        const lbl = document.createElement('div');
+        lbl.className = 'cr-section-label';
+        lbl.textContent = 'Similar Artists';
+        frag2.appendChild(lbl);
+        inCatalog.slice(0, 10).forEach(s => {
+          const allSongIds = songs.filter(x => (x.artist || '').toLowerCase() === (s.artist || '').toLowerCase()).map(x => x.id);
+          const allInLib = allSongIds.length > 0 && allSongIds.every(id => inLib(id));
+          const row = document.createElement('div');
+          row.className = 'cr-row';
+          row.innerHTML = `
+            <div class="cr-info">
+              <div class="cr-title">${esc(s.artist)}</div>
+              <div class="cr-sub">${allSongIds.length} song${allSongIds.length !== 1 ? 's' : ''} in catalog</div>
+            </div>
+            <button class="cr-add-btn ${allInLib ? 'in-lib' : ''}" title="${allInLib ? 'In Library' : 'Add to Library'}">
+              ${allInLib ? CHECK_SVG : '+'}
+            </button>`;
+          row.querySelector('.cr-info').addEventListener('click', () => { closeCatalog(); goToArtist(s.artist); });
+          const addBtn = row.querySelector('.cr-add-btn');
+          addBtn.addEventListener('click', async e => {
+            e.stopPropagation();
+            if (allInLib) {
+              for (const id of allSongIds) delete userLib[String(id)];
+              await pushUserLib(); renderList(); renderSB(); updCounts();
+              addBtn.classList.remove('in-lib'); addBtn.innerHTML = '+'; addBtn.title = 'Add to Library';
+            } else {
+              for (const id of allSongIds) {
+                const song = songs.find(x => String(x.id) === String(id));
+                if (song) userLib[String(id)] = { title: song.title, artist: song.artist, album: song.album, added: Date.now() };
+              }
+              await pushUserLib(); renderList(); renderSB(); updCounts();
+              addBtn.classList.add('in-lib'); addBtn.innerHTML = CHECK_SVG; addBtn.title = 'In Library';
+            }
+          });
+          frag2.appendChild(row);
+        });
+      }
+
+      if (notInCatalog.length) {
+        const lbl2 = document.createElement('div');
+        lbl2.className = 'cr-section-label';
+        lbl2.textContent = 'Consider Adding';
+        frag2.appendChild(lbl2);
+        const hint = document.createElement('div');
+        hint.style.cssText = 'font-size:12px;color:var(--text3);padding:6px 14px 4px';
+        hint.textContent = `Based on your listening — not yet on your server:`;
+        frag2.appendChild(hint);
+        notInCatalog.slice(0, 15).forEach(name => {
+          const row = document.createElement('div');
+          row.className = 'cr-row cr-request-row';
+          row.innerHTML = `<div class="cr-info"><div class="cr-title">${esc(name)}</div><div class="cr-sub">not in catalog</div></div>`;
+          frag2.appendChild(row);
+        });
+      }
+
+      if (frag2.childNodes.length) container.appendChild(frag2);
     }
 
     document.getElementById('catalog-search-trigger').addEventListener('click', () => { openCatalog(); closeSidebar(); });
