@@ -15,6 +15,8 @@ define('CACHE_FILE',  __DIR__ . '/.library-cache.json');
 define('CACHE_TTL',   86400); // 24 hours
 define('DEBUG',       false);
 define('ART_CACHE_DIR', __DIR__ . '/artcache');
+define('HLS_DIR',       __DIR__ . '/hls_sessions');
+define('HLS_MAX_AGE',   3600); // clean up HLS sessions older than 1 hour
 // Per-user files are derived at runtime from the API key — see userFile() below.
 // HMAC_SECRET signs stream URLs — set to any long random string, never change it.
 // Changing this invalidates all previously signed URLs.
@@ -56,7 +58,7 @@ $action = isset($_GET['action']) ? $_GET['action'] : '';
 // ── Auth — stream/art/album_stream use their own token validation ─────────────
 // $userKey is set to the matched API key and used to derive per-user file paths.
 $userKey = null;
-if ($action !== 'stream' && $action !== 'art' && $action !== 'album_stream') {
+if ($action !== 'stream' && $action !== 'art' && $action !== 'album_stream' && $action !== 'hls_serve') {
     $key = '';
     if (isset($_SERVER['HTTP_X_API_KEY'])) $key = $_SERVER['HTTP_X_API_KEY'];
     elseif (isset($_GET['key']))           $key = $_GET['key'];
@@ -93,6 +95,11 @@ elseif  ($action === 'nowplaying_set')    handleNowPlayingSet();
 elseif  ($action === 'albumart')          handleAlbumArt();
 elseif  ($action === 'save_search_miss')  handleSaveSearchMiss();
 elseif  ($action === 'get_search_misses') handleGetSearchMisses();
+elseif  ($action === 'nowplaying_get')  handleNowPlayingGet();
+elseif  ($action === 'nowplaying_set')  handleNowPlayingSet();
+elseif  ($action === 'albumart')        handleAlbumArt();
+elseif  ($action === 'hls_generate')    handleHlsGenerate();
+elseif  ($action === 'hls_serve')       handleHlsServe();
 else {
     http_response_code(400);
     header('Content-Type: application/json');
@@ -491,8 +498,8 @@ function handleAlbumStream() {
         $fullPaths[] = $full;
     }
 
-    $ffmpeg = '/volume1/music/ffmpeg/ffmpeg';
-    if (!@is_executable($ffmpeg)) { http_response_code(500); echo 'ffmpeg not available'; exit; }
+    $ffmpeg = findFfmpeg();
+    if (!$ffmpeg) { http_response_code(500); echo 'ffmpeg not available'; exit; }
 
     $format = isset($_GET['format']) ? strtolower($_GET['format']) : 'aac';
     if (!in_array($format, ['aac','opus','mp3'])) $format = 'aac';
@@ -663,6 +670,316 @@ function handleAlbumStream() {
     fclose($pipes[1]); fclose($pipes[2]); proc_close($proc);
     @unlink($listFile);
 }
+// ─── HLS GENERATE — build HLS playlist + segments for album playback ─────────
+// Creates an HLS playlist (.m3u8) and segment files (.ts) from album tracks.
+// Returns a session ID; the client fetches playlist/segments via hls_serve.
+// This avoids long-lived HTTP responses that cause server timeouts.
+function handleHlsGenerate() {
+    header('Content-Type: application/json');
+    $body = file_get_contents('php://input');
+    $data = $body ? json_decode($body, true) : null;
+    if (!$data || !isset($data['paths']) || !is_array($data['paths']) || !count($data['paths'])) {
+        http_response_code(400);
+        echo json_encode(['error' => 'paths array required']);
+        return;
+    }
+    $paths = array_values(array_filter(array_map('strval', $data['paths'])));
+    if (!$paths) {
+        http_response_code(400);
+        echo json_encode(['error' => 'empty paths']);
+        return;
+    }
+
+    $base = realpath(MUSIC_DIR);
+    if (!$base) { http_response_code(500); echo json_encode(['error' => 'Music dir not found']); return; }
+
+    // Resolve and validate every path
+    $fullPaths = [];
+    foreach ($paths as $p) {
+        $full = realpath($base . '/' . ltrim($p, '/'));
+        if (!$full || strpos($full, $base) !== 0 || !is_file($full)) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Not found: ' . $p]);
+            return;
+        }
+        $fullPaths[] = $full;
+    }
+
+    $ffmpeg = findFfmpeg();
+    if (!$ffmpeg) { http_response_code(500); echo json_encode(['error' => 'ffmpeg not available']); return; }
+
+    // Clean up old HLS sessions before creating a new one
+    hlsCleanup();
+
+    // Kill any running HLS ffmpeg process from a previous request
+    hlsKillPrevious();
+
+    // Create session directory
+    $sessionId = bin2hex(random_bytes(16));
+    $sessionDir = HLS_DIR . '/' . $sessionId;
+    if (!is_dir(HLS_DIR)) @mkdir(HLS_DIR, 0775, true);
+    @mkdir($sessionDir, 0775, true);
+
+    // Build ffmpeg concat list
+    $listFile = $sessionDir . '/concat.txt';
+    $listContent = '';
+    foreach ($fullPaths as $fp) {
+        $escaped = str_replace("'", "'\\''", $fp);
+        $listContent .= "file '" . $escaped . "'\n";
+    }
+    file_put_contents($listFile, $listContent);
+
+    // Sign the session so hls_serve can verify ownership
+    $expires = time() + 14400; // 4 hours
+    $token = hash_hmac('sha256', $sessionId . ':' . $expires, HMAC_SECRET);
+
+    // Detect input format
+    $inputExt = strtolower(pathinfo($fullPaths[0], PATHINFO_EXTENSION));
+    $allSameExt = count(array_unique(array_map(function($p) {
+        return strtolower(pathinfo($p, PATHINFO_EXTENSION));
+    }, $fullPaths))) === 1;
+
+    // Build ffmpeg command for HLS output
+    // Use AAC codec copy for m4a/aac inputs, re-encode otherwise
+    $playlistPath = $sessionDir . '/playlist.m3u8';
+    $segmentPattern = $sessionDir . '/seg%03d.ts';
+
+    $canCopyAac = in_array($inputExt, ['m4a', 'aac']) && $allSameExt;
+
+    $args = [$ffmpeg, '-f', 'concat', '-safe', '0', '-i', $listFile];
+
+    if ($canCopyAac) {
+        // Copy AAC audio, mux into MPEG-TS segments
+        $args = array_merge($args, [
+            '-map', '0:a', '-c:a', 'copy',
+        ]);
+    } else {
+        // Re-encode to AAC for HLS compatibility
+        $args = array_merge($args, [
+            '-vn', '-c:a', 'aac', '-b:a', '256k',
+        ]);
+    }
+
+    // HLS output options
+    $args = array_merge($args, [
+        '-f', 'hls',
+        '-hls_time', '6',              // ~6 second segments
+        '-hls_list_size', '0',         // keep all segments in playlist (VOD, not live)
+        '-hls_playlist_type', 'vod',   // full album, not rolling window
+        '-hls_segment_filename', $segmentPattern,
+        '-hls_flags', 'independent_segments',
+        $playlistPath,
+    ]);
+
+    // Run ffmpeg synchronously — for a typical album this takes a few seconds
+    $desc = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+
+    @set_time_limit(300); // allow up to 5 min for long albums
+    $proc = @proc_open($args, $desc, $pipes);
+    if (!$proc) {
+        @unlink($listFile);
+        http_response_code(500);
+        echo json_encode(['error' => 'ffmpeg launch failed']);
+        return;
+    }
+    // Record PID so a subsequent request can kill this process
+    $status = proc_get_status($proc);
+    if ($status && $status['pid']) {
+        @file_put_contents(HLS_DIR . '/.ffmpeg.pid', $status['pid']);
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($proc);
+
+    // Clear PID file now that ffmpeg has finished
+    @unlink(HLS_DIR . '/.ffmpeg.pid');
+
+    // Clean up concat list (segments remain)
+    @unlink($listFile);
+
+    if ($exitCode !== 0 || !file_exists($playlistPath)) {
+        // Clean up failed session
+        hlsCleanupDir($sessionDir);
+        http_response_code(500);
+        echo json_encode(['error' => 'ffmpeg failed', 'detail' => substr($stderr, 0, 500)]);
+        return;
+    }
+
+    // Write a timestamp file for cleanup tracking
+    file_put_contents($sessionDir . '/.created', (string)time());
+
+    // Return session info
+    echo json_encode([
+        'session' => $sessionId,
+        'token'   => $token,
+        'expires' => $expires,
+        'playlist' => 'playlist.m3u8',
+    ]);
+}
+
+// ─── HLS SERVE — serve playlist and segment files from HLS sessions ──────────
+function handleHlsServe() {
+    $session = isset($_GET['session']) ? $_GET['session'] : '';
+    $file    = isset($_GET['file'])    ? $_GET['file']    : '';
+    $token   = isset($_GET['token'])   ? $_GET['token']   : '';
+    $expires = isset($_GET['expires']) ? (int)$_GET['expires'] : 0;
+
+    // Validate token
+    if (time() > $expires) { http_response_code(403); echo 'Token expired'; exit; }
+    $expected = hash_hmac('sha256', $session . ':' . $expires, HMAC_SECRET);
+    if (!hash_equals($expected, $token)) { http_response_code(403); echo 'Invalid token'; exit; }
+
+    // Validate session ID (hex only) and file name (alphanumeric + dots)
+    if (!preg_match('/^[0-9a-f]{32}$/', $session)) { http_response_code(400); echo 'Invalid session'; exit; }
+    if (!preg_match('/^[a-zA-Z0-9._-]+$/', $file))  { http_response_code(400); echo 'Invalid file'; exit; }
+
+    $path = HLS_DIR . '/' . $session . '/' . $file;
+    if (!file_exists($path)) { http_response_code(404); echo 'Not found'; exit; }
+
+    // Ensure path stays within the session directory
+    $realPath = realpath($path);
+    $sessionDir = realpath(HLS_DIR . '/' . $session);
+    if (!$realPath || !$sessionDir || strpos($realPath, $sessionDir) !== 0) {
+        http_response_code(403); echo 'Forbidden'; exit;
+    }
+
+    // Determine MIME type
+    $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+    if ($ext === 'm3u8') {
+        $mime = 'application/vnd.apple.mpegurl';
+    } elseif ($ext === 'ts') {
+        $mime = 'video/mp2t';
+    } else {
+        $mime = 'application/octet-stream';
+    }
+
+    // Touch the created file to extend the session's life while it's in use
+    @touch(HLS_DIR . '/' . $session . '/.created');
+
+    $size = filesize($path);
+    header("Content-Type: $mime");
+    header("Content-Length: $size");
+    header('Cache-Control: private, max-age=3600');
+    header('Accept-Ranges: bytes');
+
+    // For .m3u8 playlists, rewrite segment URLs to include token params
+    if ($ext === 'm3u8') {
+        $content = file_get_contents($path);
+        // Rewrite segment filenames to full hls_serve URLs
+        $baseUrl = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http')
+            . '://' . $_SERVER['HTTP_HOST']
+            . rtrim(dirname($_SERVER['PHP_SELF']), '/\\') . '/api.php';
+        $params = http_build_query([
+            'action'  => 'hls_serve',
+            'session' => $session,
+            'token'   => $token,
+            'expires' => $expires,
+        ]);
+        $content = preg_replace_callback('/^(seg\d+\.ts)$/m', function($m) use ($baseUrl, $params) {
+            return $baseUrl . '?' . $params . '&file=' . $m[1];
+        }, $content);
+        header('Content-Length: ' . strlen($content));
+        echo $content;
+    } else {
+        // Serve segment file with range support
+        $start = 0;
+        $end = $size - 1;
+        if (!empty($_SERVER['HTTP_RANGE'])) {
+            preg_match('/bytes=(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $m);
+            $start = ($m[1] !== '') ? (int)$m[1] : 0;
+            $end   = ($m[2] !== '') ? min((int)$m[2], $size - 1) : $size - 1;
+            header('HTTP/1.1 206 Partial Content');
+            header("Content-Range: bytes $start-$end/$size");
+            header('Content-Length: ' . ($end - $start + 1));
+        }
+        $fp = fopen($path, 'rb');
+        fseek($fp, $start);
+        $left = $end - $start + 1;
+        while ($left > 0 && !feof($fp) && !connection_aborted()) {
+            $chunk = fread($fp, min(65536, $left));
+            echo $chunk;
+            $left -= strlen($chunk);
+            if (ob_get_level()) ob_flush();
+            flush();
+        }
+        fclose($fp);
+    }
+}
+
+// Find ffmpeg binary
+function findFfmpeg() {
+    // Check the project-local path first (Synology NAS pattern)
+    $local = MUSIC_DIR . '/ffmpeg/ffmpeg';
+    if (@is_executable($local)) return $local;
+    // Standard paths
+    $candidates = ['/usr/local/bin/ffmpeg','/usr/bin/ffmpeg','/opt/ffmpeg/bin/ffmpeg','/opt/bin/ffmpeg','/bin/ffmpeg'];
+    foreach ($candidates as $p) {
+        if (@is_executable($p)) return $p;
+    }
+    $which = @shell_exec('which ffmpeg 2>/dev/null');
+    if ($which) return trim($which);
+    return null;
+}
+
+// Kill any previously running HLS ffmpeg process.
+// Only one HLS generation should run at a time to avoid CPU spikes.
+function hlsKillPrevious() {
+    $pidFile = HLS_DIR . '/.ffmpeg.pid';
+    if (!file_exists($pidFile)) return;
+    $pid = (int)trim(file_get_contents($pidFile));
+    if ($pid > 0) {
+        // Kill the process group to also stop any child processes
+        @posix_kill($pid, 15); // SIGTERM
+        // Brief wait, then force-kill if still running
+        usleep(200000); // 200ms
+        if (@posix_kill($pid, 0)) { // check if still alive
+            @posix_kill($pid, 9); // SIGKILL
+        }
+    }
+    @unlink($pidFile);
+}
+
+// Clean up HLS session directories older than HLS_MAX_AGE
+function hlsCleanup() {
+    if (!is_dir(HLS_DIR)) return;
+    $now = time();
+    $dh = @opendir(HLS_DIR);
+    if (!$dh) return;
+    while (($entry = readdir($dh)) !== false) {
+        if ($entry[0] === '.') continue;
+        $dir = HLS_DIR . '/' . $entry;
+        if (!is_dir($dir)) continue;
+        $tsFile = $dir . '/.created';
+        $age = file_exists($tsFile) ? $now - (int)file_get_contents($tsFile) : $now - filemtime($dir);
+        if ($age > HLS_MAX_AGE) {
+            hlsCleanupDir($dir);
+        }
+    }
+    closedir($dh);
+}
+
+// Recursively remove an HLS session directory
+function hlsCleanupDir($dir) {
+    if (!is_dir($dir)) return;
+    $items = @scandir($dir);
+    if ($items) {
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') continue;
+            $path = $dir . '/' . $item;
+            if (is_dir($path)) hlsCleanupDir($path);
+            else @unlink($path);
+        }
+    }
+    @rmdir($dir);
+}
+
 // ─── LIBRARY — serve cache (TTL 24h), rebuild on expiry ──────────────────────
 function handleLibrary() {
     header('Content-Type: application/json; charset=utf-8');
