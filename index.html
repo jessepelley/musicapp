@@ -3105,10 +3105,16 @@
       if (cfg.url && cfg.apiKey && online) {
         apost('save_search_miss', { query: q.trim(), ts: Date.now() }).catch(() => {});
       }
+      swSyncData();
+      // Request notification permission on first miss (requires user gesture context)
+      if (misses.length === 1 && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
     }
     function dismissSearchMiss(query) {
       const misses = getSearchMisses().filter(m => m.query.toLowerCase() !== query.toLowerCase());
       try { localStorage.setItem('jb-search-misses', JSON.stringify(misses)); } catch { }
+      swSyncData();
     }
     function isStarred(id) { return !!getMeta(id).starred; }
     function playCount(id) { return getMeta(id).playCount || 0; }
@@ -6126,6 +6132,7 @@ function setMS(song) {
       cfg.url = (document.getElementById('cfg-url').value.trim() || '').replace(/\/$/, '');
       cfg.apiKey = document.getElementById('cfg-key').value.trim();
       scfg(cfg); document.getElementById('sp').classList.remove('show'); syncLib();
+      swSyncData(); // push updated config to SW
     });
 
     // ── TOAST ─────────────────────────────────────────────────────────────────────
@@ -6181,6 +6188,68 @@ function setMS(song) {
       }
     });
 
+    // ── SERVICE WORKER ────────────────────────────────────────────────────────────
+    // Push current config + search misses into the SW's IDB so it can run
+    // background checks even when the app tab is closed.
+    function swSyncData() {
+      if (!navigator.serviceWorker?.controller) return;
+      navigator.serviceWorker.controller.postMessage({
+        type: 'sync-data',
+        cfg:    { url: cfg.url || '', apiKey: cfg.apiKey || '' },
+        misses: getSearchMisses(),
+      });
+    }
+
+    async function registerSW() {
+      if (!('serviceWorker' in navigator)) return;
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js');
+
+        // Once the SW is controlling the page, push an initial data sync
+        navigator.serviceWorker.ready.then(() => {
+          swSyncData();
+          // Ask SW to check now if it hasn't checked in the last 24h
+          navigator.serviceWorker.controller?.postMessage({ type: 'check-now' });
+        });
+
+        // Register Periodic Background Sync (Chrome/Android only, fails silently elsewhere)
+        if ('periodicSync' in reg) {
+          try {
+            const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
+            if (status.state === 'granted') {
+              await reg.periodicSync.register('check-search-misses', {
+                minInterval: 24 * 60 * 60 * 1000,
+              });
+            }
+          } catch { /* periodicSync unavailable on this browser */ }
+        }
+      } catch (e) {
+        console.warn('[SW] Registration failed:', e);
+      }
+
+      // Handle messages from the SW
+      navigator.serviceWorker.addEventListener('message', e => {
+        if (!e.data) return;
+        if (e.data.type === 'open-catalog') {
+          // Notification tapped — open catalog with the resolved query
+          openCatalog(e.data.query);
+        } else if (e.data.type === 'misses-updated') {
+          // SW removed resolved misses — sync back to localStorage
+          try { localStorage.setItem('jb-search-misses', JSON.stringify(e.data.misses)); } catch { }
+        }
+      });
+    }
+    registerSW();
+
+    // Handle ?catalog= URL param set by SW when opening a fresh tab from a notification
+    (function handleCatalogParam() {
+      const q = new URLSearchParams(location.search).get('catalog');
+      if (q) {
+        // Wait for init to finish before opening (songs need to be loaded)
+        window.addEventListener('jb-ready', () => openCatalog(q), { once: true });
+      }
+    })();
+
     // ── INIT ──────────────────────────────────────────────────────────────────────
     async function init() {
       console.log('[Init] Starting…');
@@ -6208,6 +6277,7 @@ function setMS(song) {
       } else {
         console.log('[Init] Offline — using cached data only');
       }
+      window.dispatchEvent(new Event('jb-ready'));
     }
     init();
   </script>
