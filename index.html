@@ -449,6 +449,29 @@
     .sr.sel {
       background: var(--sel-bg) !important;
     }
+    .sr.msel {
+      background: var(--sel-bg) !important;
+      box-shadow: inset 2px 0 0 var(--accent);
+    }
+
+    /* Multi-select action bar */
+    #msel-bar {
+      display: none;
+      position: sticky;
+      bottom: 0;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: var(--bg2);
+      border-top: 1px solid var(--border2);
+      box-shadow: 0 -2px 12px var(--shadow);
+      flex-shrink: 0;
+      z-index: 5;
+    }
+    #msel-bar.show { display: flex; }
+    #msel-count { font-size: 12px; color: var(--text2); white-space: nowrap; }
+    #msel-bar .tb { font-size: 11px; padding: 3px 9px; min-height: 26px; }
+    @media (max-width: 700px) { #msel-bar { display: none !important; } }
 
     .sr.now {
       background: var(--green-bg) !important;
@@ -2580,6 +2603,17 @@
       </div>
       <div id="lw">
         <div id="sl"></div>
+        <!-- Multi-select action bar — sticky at bottom of scroll area, desktop only -->
+        <div id="msel-bar">
+          <span id="msel-count"></span>
+          <button class="tb" id="msel-play">▶ Play</button>
+          <button class="tb" id="msel-next">Play Next</button>
+          <button class="tb" id="msel-addtoqueue">Add to Queue End</button>
+          <button class="tb" id="msel-cache">↓ Cache</button>
+          <button class="tb" id="msel-addpl">Add to Playlist…</button>
+          <button class="tb" id="msel-remove" style="color:var(--red);border-color:var(--red)">Remove from Library</button>
+          <button id="msel-clear" title="Clear selection" style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;margin-left:auto">✕</button>
+        </div>
         <div id="empty">
           <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
             <path d="M9 18V5l12-2v13" />
@@ -4778,9 +4812,30 @@ function setMS(song) {
         const hit = rowOf(e.target); if (!hit) return;
         const { row, id } = hit;
 
+        if (window.innerWidth > 700) {
+          const viewSongs = getViewSongs();
+          const clickedIdx = viewSongs.findIndex(s => s.id === id);
+
+          if (e.shiftKey && lastClickIdx >= 0 && clickedIdx >= 0) {
+            // Shift+click: range select from anchor to here
+            const lo = Math.min(lastClickIdx, clickedIdx);
+            const hi = Math.max(lastClickIdx, clickedIdx);
+            for (let i = lo; i <= hi; i++) selectedIds.add(viewSongs[i].id);
+            updateSelectionUI(); return;
+          }
+          if (e.metaKey || e.ctrlKey) {
+            // Cmd/Ctrl+click: toggle individual
+            if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+            lastClickIdx = clickedIdx; updateSelectionUI(); return;
+          }
+          // Plain click: collapse to single selection, keep acting as anchor
+          selectedIds.clear(); lastClickIdx = clickedIdx;
+        }
+
         const prev = list.querySelector('.sr.sel');
         if (prev) prev.classList.remove('sel');
         selId = id; row.classList.add('sel');
+        if (window.innerWidth > 700) updateSelectionUI();
       });
 
       // Dblclick delegation
@@ -5312,6 +5367,7 @@ function setMS(song) {
       }
       updateStatusBar(s);
       updateUpNextBar();
+      if (window.innerWidth > 700) updateSelectionUI(); // re-apply .msel after DOM rebuild
     }
     function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
@@ -5854,9 +5910,10 @@ function setMS(song) {
       mobileAlbumDrilldown = null;  // reset drilldowns when switching views
       mobileArtistDrilldown = null;
       if (window.innerWidth <= 700) mobileNavMode = false; // entering a view hides the nav home screen
-      // Clear search on view change
+      // Clear search and selection on view change
       sq = '';
       searchAllSongs = false;
+      selectedIds.clear(); lastClickIdx = -1;
       const searchEl = document.getElementById('search');
       if (searchEl) searchEl.value = '';
       const mobSearchEl = document.getElementById('mob-search-input');
@@ -6018,10 +6075,79 @@ function setMS(song) {
 
 
     // ── BULK SELECTION ────────────────────────────────────────────────────────────
+    let selectedIds  = new Set(); // song IDs currently selected (desktop multi-select)
+    let lastClickIdx = -1;        // index in current view of last clicked row (shift-anchor)
 
+    function getSelSongs() {
+      return [...selectedIds].map(id => songs.find(s => s.id === id)).filter(Boolean);
+    }
+    function clearSelection() {
+      selectedIds.clear(); lastClickIdx = -1; updateSelectionUI();
+    }
+    function updateSelectionUI() {
+      // Re-apply .msel on all currently-rendered rows
+      const sl = document.getElementById('sl');
+      if (sl) sl.querySelectorAll('.sr').forEach(r => r.classList.toggle('msel', selectedIds.has(r.dataset.id)));
+      // Show/hide action bar
+      const bar = document.getElementById('msel-bar');
+      if (!bar) return;
+      const n = selectedIds.size;
+      if (n > 0) {
+        bar.classList.add('show');
+        document.getElementById('msel-count').textContent = `${n} song${n !== 1 ? 's' : ''} selected`;
+        const allCached = getSelSongs().every(s => cachedIds.has(s.id));
+        document.getElementById('msel-cache').textContent = allCached ? '✕ Remove from Cache' : '↓ Cache';
+      } else {
+        bar.classList.remove('show');
+      }
+    }
+
+    // Action bar button handlers
+    document.getElementById('msel-play').addEventListener('click', () => {
+      const sel = getSelSongs(); if (!sel.length) return;
+      freezeQueue(null); queue.length = 0; queue.push(...sel.map(s => s.id));
+      qi = 0; playSong(queue[0], true, true); clearSelection();
+    });
+    document.getElementById('msel-next').addEventListener('click', () => {
+      const sel = getSelSongs(); if (!sel.length) return;
+      if (!queue.length) freezeQueue(null);
+      queue.splice(qi + 1, 0, ...sel.map(s => s.id));
+      updCounts(); toast(`${sel.length} songs playing next`); clearSelection();
+    });
+    document.getElementById('msel-addtoqueue').addEventListener('click', () => {
+      const sel = getSelSongs(); if (!sel.length) return;
+      if (!queue.length) freezeQueue(null);
+      queue.push(...sel.map(s => s.id));
+      updCounts(); toast(`${sel.length} songs added to queue`); clearSelection();
+    });
+    document.getElementById('msel-cache').addEventListener('click', () => {
+      const sel = getSelSongs(); if (!sel.length) return;
+      const allCached = sel.every(s => cachedIds.has(s.id));
+      if (allCached) { sel.forEach(s => uncache(s.id)); toast(`Removed ${sel.length} songs from cache`); }
+      else { const toCache = sel.filter(s => !cachedIds.has(s.id)); toCache.forEach(s => cacheSong(s.id)); toast(`Caching ${toCache.length} songs…`); }
+      clearSelection();
+    });
+    document.getElementById('msel-addpl').addEventListener('click', () => {
+      const sel = getSelSongs(); if (!sel.length) return;
+      const rect = document.getElementById('msel-addpl').getBoundingClientRect();
+      showGroupCtx(rect.left, rect.top, sel, `${sel.length} songs`);
+    });
+    document.getElementById('msel-remove').addEventListener('click', () => {
+      const sel = getSelSongs(); if (!sel.length) return;
+      if (!confirm(`Remove ${sel.length} song${sel.length !== 1 ? 's' : ''} from your library?`)) return;
+      sel.forEach(s => removeFromLib(s.id)); clearSelection();
+    });
+    document.getElementById('msel-clear').addEventListener('click', clearSelection);
 
     // ── CONTEXT MENU ──────────────────────────────────────────────────────────────
     function showCtx(x, y, id) {
+      // Right-clicking inside a multi-selection → show group ctx for all selected songs
+      if (window.innerWidth > 700 && selectedIds.size > 1 && selectedIds.has(id)) {
+        showGroupCtx(x, y, getSelSongs(), `${selectedIds.size} songs`);
+        return;
+      }
+      // Right-clicking outside active selection: collapse to just this row
+      if (selectedIds.size > 0) { selectedIds.clear(); updateSelectionUI(); }
       ctxId = id;
       const menu = document.getElementById('ctx'), pi = document.getElementById('ctx-pls'), ps = document.getElementById('ctx-pls-sep');
       const isCached = cachedIds.has(id), starred = isStarred(id);
