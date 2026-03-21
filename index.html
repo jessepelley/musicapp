@@ -1168,6 +1168,15 @@
       display: none;
     }
 
+    /* Mobile nav strip and back bar — hidden on desktop */
+    #mob-nav {
+      display: none;
+    }
+
+    #mob-back-bar {
+      display: none;
+    }
+
     #mob-search-bar {
       display: none;
     }
@@ -1217,9 +1226,7 @@
       }
 
       #menu-btn {
-        display: flex;
-        min-width: 38px;
-        min-height: 38px;
+        display: none;
       }
 
       #sync-status {
@@ -1352,34 +1359,185 @@
         color: var(--green);
       }
 
-      /* Sidebar as slide-over */
+      /* Sidebar fully hidden on mobile — replaced by #mob-nav strip */
       #sidebar {
+        display: none !important;
+      }
+
+      /* ── MOBILE NAV STRIP ─────────────────────────────────────────────────────── */
+      #mob-nav {
         display: flex;
-        position: fixed;
-        top: 0;
-        left: 0;
-        bottom: 0;
-        width: 260px;
-        z-index: 50;
-        transform: translateX(-100%);
-        transition: transform .25s ease;
-        box-shadow: 4px 0 24px var(--shadow);
+        overflow-x: auto;
+        overflow-y: hidden;
+        gap: 6px;
+        padding: 8px 12px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
       }
 
-      #sidebar.open {
-        transform: translateX(0);
+      #mob-nav::-webkit-scrollbar {
+        display: none;
       }
 
-      #sidebar-overlay {
+      .mob-nav-tab {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 12px;
+        border-radius: 20px;
+        background: var(--bg3);
+        border: 1px solid var(--border2);
+        color: var(--text2);
+        font-size: 12.5px;
+        white-space: nowrap;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: background .12s, color .12s;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .mob-nav-tab.active {
+        background: var(--accent-dk);
+        border-color: var(--accent);
+        color: #fff;
+      }
+
+      .mob-nav-tab .mnt-badge {
+        font-family: 'DM Mono', monospace;
+        font-size: 9px;
+        background: rgba(0,0,0,.18);
+        border-radius: 8px;
+        padding: 1px 5px;
+        margin-left: 2px;
+      }
+
+      .mob-nav-tab.active .mnt-badge {
+        background: rgba(255,255,255,.2);
+      }
+
+      /* ── MOBILE BACK BAR (album drilldown) ───────────────────────────────────── */
+      #mob-back-bar {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 14px;
+        background: var(--bg2);
+        border-bottom: 1px solid var(--border);
+        color: var(--accent);
+        font-size: 13px;
+        cursor: pointer;
+        flex-shrink: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      #mob-back-bar.show {
+        display: flex;
+      }
+
+      /* ── MOBILE ALBUM GRID ────────────────────────────────────────────────────── */
+      #mob-album-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        padding: 14px;
+      }
+
+      .mob-album-tile {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .mob-album-tile:active .mob-album-art {
+        opacity: 0.75;
+      }
+
+      .mob-album-art {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        border-radius: 8px;
+        background: var(--bg3);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: opacity .1s;
+      }
+
+      .mob-album-art img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
         display: block;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity .25s;
       }
 
-      #sidebar-overlay.show {
-        opacity: 1;
-        pointer-events: auto;
+      .mob-album-name {
+        font-size: 11px;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--text);
+        line-height: 1.3;
+      }
+
+      .mob-album-artist {
+        font-size: 10px;
+        color: var(--text2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.3;
+      }
+
+      .mob-album-count {
+        font-size: 9.5px;
+        color: var(--text3);
+        font-family: 'DM Mono', monospace;
+      }
+
+      /* ── MOBILE ARTIST ROWS ───────────────────────────────────────────────────── */
+      .mob-artist-row {
+        display: flex;
+        align-items: center;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        gap: 10px;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .mob-artist-row:active {
+        background: var(--bg3);
+      }
+
+      .mob-artist-name {
+        flex: 1;
+        font-size: 14px;
+        color: var(--text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mob-artist-count {
+        font-size: 11px;
+        color: var(--text3);
+        font-family: 'DM Mono', monospace;
+        flex-shrink: 0;
+      }
+
+      .mob-artist-chevron {
+        color: var(--text3);
+        font-size: 18px;
+        flex-shrink: 0;
+        line-height: 1;
       }
 
       /* Mobile bottom player */
@@ -2256,6 +2414,15 @@
         </svg>
         Songs <span class="badge" id="lib-ct">0</span>
       </div>
+      <div class="ni" data-view="artists" id="nav-artists">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        Artists <span class="badge" id="artists-ct">0</span>
+      </div>
       <div class="ni" data-view="albums" id="nav-albums">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"/>
@@ -2308,6 +2475,17 @@
 
     <!-- MAIN -->
     <div id="main">
+
+      <!-- MOBILE NAV STRIP (populated by renderMobNav, visible only on mobile) -->
+      <div id="mob-nav"></div>
+
+      <!-- MOBILE BACK BAR (shown when drilling into an album on mobile) -->
+      <div id="mob-back-bar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+        <span id="mob-back-label">Albums</span>
+      </div>
 
       <!-- Live session banner -->
 
@@ -2680,10 +2858,12 @@
     let origQueue = []; // natural order saved when shuffle is on
     let playbackView = 'all'; // view active when playback was last initiated via freezeQueue
     let view = 'all', selId = null, ctxId = null, sq = '';
+    let mobileAlbumDrilldown = null; // {album, artistKey, label} when drilling into an album tile on mobile
     // Per-view sort state: each view remembers its own sort col/dir
     // Default sort cols per view (overridable by clicking headers)
     const VIEW_DEFAULTS = {
       'all':             { col: 'artist', dir: 1 },
+      'artists':         { col: 'artist', dir: 1 },
       'albums':          { col: 'artist', dir: 1 },
       'singles':         { col: 'artist', dir: 1 },
       'cached':          { col: 'artist', dir: 1 },
@@ -4035,6 +4215,7 @@ function setMS(song) {
         document.getElementById('albums-ct').textContent       = nonMissing.filter(s => s.section === 'albums').length;
         document.getElementById('singles-ct').textContent      = nonMissing.filter(s => s.section === 'singles').length;
         document.getElementById('compilations-ct').textContent = nonMissing.filter(s => s.section === 'compilations').length;
+        document.getElementById('artists-ct').textContent      = new Set(nonMissing.map(s => _groupArtist(s))).size;
       }
     }
 
@@ -4192,7 +4373,7 @@ function setMS(song) {
         return allQ; // no search filter, no re-sort
       }
       if (view === 'cached') s = lib.filter(x => cachedIds.has(x.id));
-      else if (view === 'all') s = [...lib];
+      else if (view === 'all' || view === 'artists') s = [...lib];
       else if (view === 'albums') {
         // Driven by the 'section' field set from the filesystem path in api.php
         s = lib.filter(x => x.section === 'albums');
@@ -4448,7 +4629,37 @@ function setMS(song) {
     })();
 
     function renderList() {
-      const s = getViewSongs();
+      const mobile = window.innerWidth <= 700;
+
+      // ── Mobile-specific views ──────────────────────────────────────────────────
+      if (mobile && view === 'artists') {
+        renderMobArtistList(); return;
+      }
+      if (mobile && (view === 'albums' || view === 'compilations') && !mobileAlbumDrilldown) {
+        renderMobAlbumGrid(); return;
+      }
+      // When drilled into an album on mobile, show that album's songs
+      const mobDrillSongs = (mobile && mobileAlbumDrilldown)
+        ? getMobDrillSongs()
+        : null;
+
+      // Update mobile back bar and toolbar title when in drilldown
+      const backBar = document.getElementById('mob-back-bar');
+      const backLabel = document.getElementById('mob-back-label');
+      if (backBar) {
+        if (mobile && mobileAlbumDrilldown) {
+          backBar.classList.add('show');
+          const parentName = view === 'compilations' ? 'Compilations' : 'Albums';
+          if (backLabel) backLabel.textContent = parentName;
+          // Update toolbar brand to show album being viewed
+          const brand = document.getElementById('tb-brand');
+          if (brand) brand.textContent = mobileAlbumDrilldown.label || parentName;
+        } else {
+          backBar.classList.remove('show');
+        }
+      }
+
+      const s = mobDrillSongs || getViewSongs();
       const list = document.getElementById('sl');
       const empty = document.getElementById('empty');
       const cs = curSong();
@@ -4457,6 +4668,9 @@ function setMS(song) {
       const cols = getViewCols(view);
       const tpl  = cols.map(c => c.width).join(' ');
 
+      // Hide col headers for artists view (handled by renderMobArtistList) and album grid
+      const colHdrs = document.getElementById('col-hdrs');
+      if (colHdrs) colHdrs.style.display = '';
       renderColHdrs(view);
 
       if (!s.length) {
@@ -4878,18 +5092,188 @@ function setMS(song) {
     }
     function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
+    // ── MOBILE ALBUM GRID helpers ─────────────────────────────────────────────────
+
+    // Build album groups from the current view's songs
+    function getMobAlbumGroups() {
+      const viewSongs = getViewSongs();
+      const isCompilations = view === 'compilations';
+      const groups = {}; // key -> {album, artistKey, displayArtist, songs[], artUrl}
+      for (const song of viewSongs) {
+        const artistKey = isCompilations ? '__various__' : _groupArtist(song);
+        const albumKey = (song.album || '').toLowerCase().trim() + '|||' + artistKey;
+        if (!groups[albumKey]) {
+          groups[albumKey] = {
+            album: song.album || '',
+            artistKey,
+            displayArtist: isCompilations ? 'Various Artists' : (song.album_artist || song.artist || ''),
+            songs: [],
+            artUrl: null
+          };
+        }
+        groups[albumKey].songs.push(song);
+        if (!groups[albumKey].artUrl && getMeta(song.id).albumArtUrl) {
+          groups[albumKey].artUrl = getMeta(song.id).albumArtUrl;
+        }
+      }
+      return groups;
+    }
+
+    // Get songs for the current mobile album drilldown
+    function getMobDrillSongs() {
+      const d = mobileAlbumDrilldown;
+      if (!d) return null;
+      const viewSongs = getViewSongs();
+      if (d.isIncomplete) {
+        // Show all songs whose album key is "incomplete"
+        const groups = getMobAlbumGroups();
+        const incompleteKeys = Object.keys(groups).filter(k => groups[k].songs.length <= 3);
+        const incompleteIds = new Set();
+        for (const k of incompleteKeys) groups[k].songs.forEach(s => incompleteIds.add(s.id));
+        return viewSongs.filter(s => incompleteIds.has(s.id));
+      }
+      const isCompilations = view === 'compilations';
+      return viewSongs.filter(s => {
+        const albumMatch = (s.album || '').toLowerCase().trim() === d.album;
+        if (isCompilations) return albumMatch;
+        return albumMatch && _groupArtist(s) === d.artistKey;
+      });
+    }
+
+    // Render the album grid for albums/compilations on mobile
+    function renderMobAlbumGrid() {
+      const list = document.getElementById('sl');
+      const colHdrs = document.getElementById('col-hdrs');
+      const backBar = document.getElementById('mob-back-bar');
+      if (colHdrs) colHdrs.style.display = 'none';
+      if (backBar) backBar.classList.remove('show');
+
+      const groups = getMobAlbumGroups();
+      const complete = [];
+      const incomplete = [];
+      for (const key of Object.keys(groups)) {
+        const g = groups[key];
+        if (g.songs.length > 3) complete.push(g);
+        else incomplete.push(g);
+      }
+      // Sort complete albums: by displayArtist then album name
+      complete.sort((a, b) => {
+        const ar = a.artistKey.toLowerCase(), br = b.artistKey.toLowerCase();
+        if (ar !== br) return ar < br ? -1 : 1;
+        return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
+      });
+
+      const frag = document.createDocumentFragment();
+      const grid = document.createElement('div');
+      grid.id = 'mob-album-grid';
+
+      function makeTile(album, artistKey, displayArtist, artUrl, label, isIncomplete) {
+        const tile = document.createElement('div');
+        tile.className = 'mob-album-tile';
+        const artDiv = document.createElement('div');
+        artDiv.className = 'mob-album-art';
+        if (artUrl) {
+          artDiv.innerHTML = `<img src="${esc(artUrl)}" alt="" onerror="this.parentNode.innerHTML='<svg width=28 height=28 viewBox=\\"0 0 24 24\\" fill=none stroke=currentColor stroke-width=1.5 style=\\"opacity:.3\\"><path d=\\"M9 18V5l12-2v13\\"/><circle cx=6 cy=18 r=3/><circle cx=18 cy=16 r=3/></svg>'">`;
+        } else {
+          artDiv.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.3"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+        }
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'mob-album-name';
+        nameDiv.textContent = label;
+        tile.appendChild(artDiv);
+        tile.appendChild(nameDiv);
+        if (!isIncomplete) {
+          const artistDiv = document.createElement('div');
+          artistDiv.className = 'mob-album-artist';
+          artistDiv.textContent = displayArtist;
+          tile.appendChild(artistDiv);
+        }
+        tile.addEventListener('click', () => {
+          mobileAlbumDrilldown = isIncomplete
+            ? { isIncomplete: true, label: 'Incomplete' }
+            : { album: (album || '').toLowerCase().trim(), artistKey, label: album || 'Unknown' };
+          renderList();
+        });
+        return tile;
+      }
+
+      for (const g of complete) {
+        grid.appendChild(makeTile(g.album, g.artistKey, g.displayArtist, g.artUrl, g.album || 'Unknown', false));
+      }
+      if (incomplete.length > 0) {
+        // Pick first art from incomplete group, or none
+        const incArt = incomplete.find(g => g.artUrl)?.artUrl || null;
+        grid.appendChild(makeTile(null, null, null, incArt, 'Incomplete', true));
+      }
+
+      frag.appendChild(grid);
+      list.innerHTML = '';
+      list.appendChild(frag);
+      updateStatusBar([]);
+    }
+
+    // Render artist list on mobile
+    function renderMobArtistList() {
+      const list = document.getElementById('sl');
+      const colHdrs = document.getElementById('col-hdrs');
+      const backBar = document.getElementById('mob-back-bar');
+      if (colHdrs) colHdrs.style.display = 'none';
+      if (backBar) backBar.classList.remove('show');
+
+      const lib = libSongs().filter(s => !s._missing);
+      // Group by canonical artist key
+      const artistMap = {};
+      for (const song of lib) {
+        const key = _groupArtist(song);
+        if (!artistMap[key]) {
+          artistMap[key] = { key, displayName: song.album_artist || song.artist || key, count: 0 };
+        }
+        artistMap[key].count++;
+      }
+      const artists = Object.values(artistMap);
+      // Apply search filter
+      const filteredArtists = sq
+        ? artists.filter(a => a.displayName.toLowerCase().includes(sq.toLowerCase()))
+        : artists;
+      filteredArtists.sort((a, b) => a.key < b.key ? -1 : 1);
+
+      const frag = document.createDocumentFragment();
+      for (const artist of filteredArtists) {
+        const row = document.createElement('div');
+        row.className = 'mob-artist-row';
+        row.innerHTML = `
+          <div class="mob-artist-name">${esc(artist.displayName)}</div>
+          <div class="mob-artist-count">${artist.count}</div>
+          <div class="mob-artist-chevron">›</div>`;
+        row.addEventListener('click', () => goToArtist(artist.displayName));
+        frag.appendChild(row);
+      }
+
+      list.innerHTML = '';
+      if (filteredArtists.length === 0) {
+        list.innerHTML = '<div style="text-align:center;padding:40px 24px;color:var(--text3)">No artists found</div>';
+      } else {
+        list.appendChild(frag);
+      }
+      updateStatusBar([]);
+    }
+
     function renderSB() {
       const libCount = libSongs().filter(s => !s._missing).length;
       document.getElementById('lib-ct').textContent = libCount;
       document.getElementById('cache-ct').textContent = cachedIds.size;
       document.getElementById('upnext-ct').textContent = queue.length;
       // Highlight fixed nav items
-      ['all','albums','singles','compilations','cached','upnext'].forEach(id => {
+      ['all','artists','albums','singles','compilations','cached','upnext'].forEach(id => {
         document.getElementById('nav-' + id)?.classList.toggle('active', view === id);
       });
-      // Keep compilations badge in sync
+      // Keep section badges in sync
       const allLib = libSongs().filter(s => !s._missing);
       document.getElementById('compilations-ct').textContent = allLib.filter(s => s.section === 'compilations').length;
+      document.getElementById('artists-ct').textContent = (() => {
+        const keys = new Set(allLib.map(s => _groupArtist(s)));
+        return keys.size;
+      })();
       const nav = document.getElementById('pl-nav');
       nav.innerHTML = '';
       // ── Smart views ──────────────────────────────────────────────────────────────
@@ -4958,10 +5342,66 @@ function setMS(song) {
         el.addEventListener('touchmove', () => clearTimeout(plPressTimer), { passive: true });
         nav.appendChild(el);
       });
+      renderMobNav();
+    }
+
+    // ── MOBILE NAV STRIP renderer ─────────────────────────────────────────────────
+    // Mirrors the sidebar but renders as horizontal pill tabs above the song list.
+    // Only shown on mobile (CSS hides on desktop).
+    function renderMobNav() {
+      const container = document.getElementById('mob-nav');
+      if (!container) return;
+      const now2 = Date.now();
+      const lib2 = libSongs().filter(s => !s._missing);
+      const starCount2 = lib2.filter(s => isStarred(s.id)).length;
+      const recentCutoff2 = now2 - (30 * 24 * 60 * 60 * 1000);
+      const recentCount2 = lib2.filter(s => (userLib[String(s.id)]?.added || getMeta(s.id).dateAdded || 0) > recentCutoff2).length;
+      const recentPlayedCount2 = lib2.filter(s => lastPlayed(s.id) > 0).length;
+      const mostPlayedCount2 = lib2.filter(s => playCount(s.id) > 0).length;
+      const mostSkippedCount2 = lib2.filter(s => skipCount(s.id) > 0).length;
+      const neverCount2 = lib2.filter(s => !playCount(s.id)).length;
+      const artistCount2 = new Set(lib2.map(s => _groupArtist(s))).size;
+
+      const tabs = [
+        { id: 'all',             label: 'Songs',           badge: lib2.length },
+        { id: 'artists',         label: 'Artists',         badge: artistCount2 },
+        { id: 'albums',          label: 'Albums',          badge: lib2.filter(s => s.section === 'albums').length },
+        { id: 'singles',         label: 'Singles',         badge: lib2.filter(s => s.section === 'singles').length },
+        { id: 'compilations',    label: 'Compilations',    badge: lib2.filter(s => s.section === 'compilations').length },
+        { id: 'cached',          label: 'Offline',         badge: cachedIds.size },
+        { id: 'upnext',          label: 'Up Next',         badge: queue.length },
+        { id: 'recently-added',  label: 'Recently Added',  badge: recentCount2 },
+        { id: 'recently-played', label: 'Recently Played', badge: recentPlayedCount2 },
+        { id: 'most-played',     label: 'Most Played',     badge: mostPlayedCount2 },
+        { id: 'most-skipped',    label: 'Most Skipped',    badge: mostSkippedCount2 },
+        { id: 'never-played',    label: 'Never Played',    badge: neverCount2 },
+      ];
+      if (starCount2 > 0 || view === 'starred') {
+        tabs.push({ id: 'starred', label: 'Loved', badge: starCount2 });
+      }
+      pls.forEach(pl => {
+        tabs.push({ id: String(pl.id), label: pl.name, badge: (pl.sids || []).length });
+      });
+
+      container.innerHTML = '';
+      for (const tab of tabs) {
+        const el = document.createElement('div');
+        el.className = 'mob-nav-tab' + (String(view) === String(tab.id) ? ' active' : '');
+        el.innerHTML = esc(tab.label) + `<span class="mnt-badge">${tab.badge}</span>`;
+        el.addEventListener('click', () => {
+          mobileAlbumDrilldown = null; // clear drilldown on any nav change
+          switchView(tab.id);
+        });
+        container.appendChild(el);
+      }
+      // Scroll active tab into view
+      const activeEl = container.querySelector('.mob-nav-tab.active');
+      if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
     }
 
     const VIEW_NAMES = {
       'all':             'Songs',
+      'artists':         'Artists',
       'albums':          'Albums',
       'singles':         'Singles',
       'cached':          'Offline Cache',
@@ -4982,6 +5422,7 @@ function setMS(song) {
 
     function switchView(v) {
       view = v;
+      mobileAlbumDrilldown = null; // always reset album drilldown when switching views
       // Clear search on view change
       sq = '';
       const searchEl = document.getElementById('search');
@@ -5019,11 +5460,18 @@ function setMS(song) {
     document.getElementById('menu-btn').addEventListener('click', openSidebar);
     document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
     document.getElementById('nav-all').addEventListener('click', () => { switchView('all'); closeSidebar(); });
+    document.getElementById('nav-artists').addEventListener('click', () => { switchView('artists'); closeSidebar(); });
     document.getElementById('nav-albums').addEventListener('click', () => { switchView('albums'); closeSidebar(); });
     document.getElementById('nav-singles').addEventListener('click', () => { switchView('singles'); closeSidebar(); });
     document.getElementById('nav-compilations').addEventListener('click', () => { switchView('compilations'); closeSidebar(); });
     document.getElementById('nav-cached').addEventListener('click', () => { switchView('cached'); closeSidebar(); });
     document.getElementById('nav-upnext').addEventListener('click', () => { switchView('upnext'); closeSidebar(); });
+
+    // ── MOBILE BACK BAR (album drilldown) ────────────────────────────────────────
+    document.getElementById('mob-back-bar').addEventListener('click', () => {
+      mobileAlbumDrilldown = null;
+      renderList();
+    });
 
     // ── NOW PLAYING PANEL (mobile) ────────────────────────────────────────────────
     function openNPPanel() { document.getElementById('nowplaying-panel').classList.add('open'); }
@@ -5230,6 +5678,7 @@ function setMS(song) {
     function goToArtist(artist) {
       if (!artist) return;
       // Switch to Songs view, set search to artist name
+      mobileAlbumDrilldown = null;
       view = 'all';
       document.querySelectorAll('.ni').forEach(el => el.classList.toggle('active', el.dataset.view === 'all'));
       sq = artist;
@@ -5241,6 +5690,7 @@ function setMS(song) {
     function goToAlbum(album, artist) {
       if (!album) return;
       // Switch to Songs view, filter by album (use "Album - Artist" to be specific if needed)
+      mobileAlbumDrilldown = null;
       view = 'all';
       document.querySelectorAll('.ni').forEach(el => el.classList.toggle('active', el.dataset.view === 'all'));
       sq = album;
