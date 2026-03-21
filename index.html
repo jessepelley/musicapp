@@ -1215,14 +1215,40 @@
         padding-bottom: max(4px, env(safe-area-inset-bottom));
       }
 
-      /* Toolbar mobile layout */
+      /* Toolbar mobile layout — brand absolutely centered, immune to asymmetric side elements */
       #toolbar {
         padding: 0 10px;
         gap: 6px;
+        position: relative;
       }
 
       #tb-brand {
-        font-size: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: .06em;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        flex: none;
+        pointer-events: none; /* clicks pass through to toolbar */
+        white-space: nowrap;
+        max-width: 55vw;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* Hide sync pill on mobile — only show when active (syncing) or error */
+      #sync-status {
+        display: none;
+      }
+      #sync-status.loading,
+      #sync-status.err {
+        display: flex;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 9.5px;
+        padding: 2px 6px;
       }
 
       /* #menu-btn repurposed as ← Library back button on mobile; shown/hidden via JS */
@@ -1236,12 +1262,6 @@
         border-color: transparent;
         background: transparent;
         padding: 0 8px 0 4px;
-      }
-
-      #sync-status {
-        display: flex;
-        font-size: 9.5px;
-        padding: 2px 6px;
       }
 
       #syncbtn {
@@ -1491,6 +1511,10 @@
         height: 100%;
         object-fit: cover;
         display: block;
+        pointer-events: none;        /* prevent Safari treating it as a tappable image */
+        -webkit-touch-callout: none; /* suppress Safari long-press image popup */
+        -webkit-user-select: none;
+        user-select: none;
       }
 
       .mob-album-name {
@@ -6127,11 +6151,13 @@ function setMS(song) {
     // Push state for mobile navigation so swipe-back (iOS Safari edge swipe) works.
     function pushMobileHistory() {
       if (window.innerWidth > 700) return;
+      const sl = document.getElementById('sl');
       history.pushState({
         view,
         mobileNavMode,
         mobileAlbumDrilldown: mobileAlbumDrilldown ? JSON.parse(JSON.stringify(mobileAlbumDrilldown)) : null,
         mobileArtistDrilldown: mobileArtistDrilldown ? JSON.parse(JSON.stringify(mobileArtistDrilldown)) : null,
+        scrollTop: sl ? sl.scrollTop : 0,
       }, '');
     }
     window.addEventListener('popstate', e => {
@@ -6141,6 +6167,12 @@ function setMS(song) {
       mobileAlbumDrilldown = e.state.mobileAlbumDrilldown || null;
       mobileArtistDrilldown = e.state.mobileArtistDrilldown || null;
       renderList(); renderSB();
+      // Restore scroll position after render
+      const savedScroll = e.state.scrollTop || 0;
+      if (savedScroll > 0) {
+        const sl = document.getElementById('sl');
+        if (sl) requestAnimationFrame(() => { sl.scrollTop = savedScroll; });
+      }
     });
 
     // ── INIT ──────────────────────────────────────────────────────────────────────
