@@ -1238,8 +1238,8 @@
         text-overflow: ellipsis;
       }
 
-      /* Settings gear always pinned to the right */
-      #setbtn {
+      /* Bell + gear pinned to the right as a pair */
+      #inbox-btn {
         margin-left: auto;
       }
 
@@ -2202,6 +2202,66 @@
 ═══════════════════════════════════════════════════ */
 
 
+    /* ── INBOX (WHAT'S NEW) ─────────────────────────────────────────────────── */
+    #inbox-btn { position: relative; }
+    #inbox-badge {
+      display: none;
+      position: absolute;
+      top: 4px; right: 4px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 8px;
+      font-weight: 700;
+      min-width: 13px;
+      height: 13px;
+      border-radius: 7px;
+      padding: 0 2px;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      pointer-events: none;
+      font-family: 'DM Mono', monospace;
+    }
+    #inbox-badge.has-items { display: flex; }
+    #inbox-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 300;
+      flex-direction: column;
+    }
+    #inbox-overlay.open { display: flex; }
+    #inbox-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    #inbox-close {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-size: 13px;
+      cursor: pointer;
+      padding: 4px 2px;
+    }
+    #inbox-results {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 20px;
+    }
+    @media (max-width: 700px) {
+      #inbox-header { padding-top: max(14px, env(safe-area-inset-top)); }
+      #inbox-results { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+    }
+
     /* ── CATALOG SEARCH OVERLAY ────────────────────────────────────────────── */
     #catalog-overlay {
       display: none;
@@ -2387,6 +2447,13 @@
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
         </svg>
         Sync
+      </button>
+      <button class="tb icon-only" id="inbox-btn" title="What's New">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span id="inbox-badge"></span>
       </button>
       <button class="tb icon-only" id="setbtn" title="Settings">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2762,6 +2829,17 @@
     <div id="grp-ctx-pls"></div>
   </div>
 
+  <!-- WHAT'S NEW INBOX OVERLAY -->
+  <div id="inbox-overlay">
+    <div id="inbox-header">
+      <span>What's New</span>
+      <button id="inbox-close">Done</button>
+    </div>
+    <div id="inbox-results">
+      <div class="cr-empty">You're all caught up</div>
+    </div>
+  </div>
+
   <!-- CONTEXT MENU -->
   <!-- CATALOG SEARCH OVERLAY -->
   <div id="catalog-overlay">
@@ -3036,6 +3114,7 @@
         await pullPlaylists();
         stampNewSongs();
         rebuildQ(); renderList(); renderSB();
+        checkForNewContent();
         console.log(`[Sync] Complete in ${Date.now()-t0}ms`);
       } catch (e) {
         if (e.name === 'AbortError') {
@@ -3092,6 +3171,171 @@
     // ── SEARCH MISS LOG ───────────────────────────────────────────────────────────
     function getSearchMisses() {
       try { return JSON.parse(localStorage.getItem('jb-search-misses')) || []; } catch { return []; }
+    }
+
+    // ── INBOX (WHAT'S NEW) ────────────────────────────────────────────────────────
+    function getInboxNotifs() {
+      try { return JSON.parse(localStorage.getItem('jb-inbox-notifs')) || []; } catch { return []; }
+    }
+    function saveInboxNotifs(arr) {
+      try { localStorage.setItem('jb-inbox-notifs', JSON.stringify(arr)); } catch { }
+    }
+    function getKnownSongIds() {
+      try { return new Set(JSON.parse(localStorage.getItem('jb-known-ids')) || []); } catch { return new Set(); }
+    }
+    function saveKnownSongIds(set) {
+      try { localStorage.setItem('jb-known-ids', JSON.stringify([...set])); } catch { }
+    }
+    function updateInboxBadge() {
+      const badge = document.getElementById('inbox-badge');
+      if (!badge) return;
+      const known = getKnownSongIds();
+      const newCount = known.size ? songs.filter(s => !known.has(String(s.id))).length : 0;
+      const n = getInboxNotifs().length + newCount;
+      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.classList.toggle('has-items', n > 0);
+    }
+    // Called after every successful sync to resolve misses and detect new songs
+    function checkForNewContent() {
+      const misses = getSearchMisses();
+      const notifs = getInboxNotifs();
+      const resolved = [];
+      const remaining = [];
+      for (const miss of misses) {
+        const lq = miss.query.toLowerCase();
+        const found = songs.some(s =>
+          (s.title || '').toLowerCase().includes(lq) ||
+          (s.artist || '').toLowerCase().includes(lq) ||
+          (s.album || '').toLowerCase().includes(lq) ||
+          (s.album_artist || '').toLowerCase().includes(lq)
+        );
+        (found ? resolved : remaining).push(miss);
+      }
+      if (resolved.length) {
+        for (const miss of resolved) {
+          if (!notifs.some(n => n.query === miss.query)) {
+            notifs.push({ type: 'resolved-miss', query: miss.query, ts: Date.now() });
+          }
+        }
+        try { localStorage.setItem('jb-search-misses', JSON.stringify(remaining)); } catch { }
+        saveInboxNotifs(notifs);
+        swSyncData();
+      }
+      // First sync: silently initialise known-IDs so everything doesn't appear "new"
+      const known = getKnownSongIds();
+      if (!known.size && songs.length) {
+        saveKnownSongIds(new Set(songs.map(s => String(s.id))));
+      }
+      updateInboxBadge();
+    }
+
+    // Snapshot of new songs captured when inbox is opened (before marking as seen)
+    let _inboxNewSongs = [];
+    function openInbox() {
+      _inboxNewSongs = (() => {
+        const known = getKnownSongIds();
+        return known.size ? songs.filter(s => !known.has(String(s.id))) : [];
+      })();
+      // Mark current songs as seen immediately so badge clears
+      saveKnownSongIds(new Set(songs.map(s => String(s.id))));
+      updateInboxBadge();
+      renderInbox();
+      document.getElementById('inbox-overlay').classList.add('open');
+    }
+    function closeInbox() {
+      document.getElementById('inbox-overlay').classList.remove('open');
+    }
+    function renderInbox() {
+      const el = document.getElementById('inbox-results');
+      const notifs = getInboxNotifs();
+      const newSongs = _inboxNewSongs;
+      const frag = document.createDocumentFragment();
+
+      if (!notifs.length && !newSongs.length) {
+        const empty = document.createElement('div');
+        empty.className = 'cr-empty';
+        empty.innerHTML = '<div style="font-size:32px;margin-bottom:10px">🎵</div>You\'re all caught up';
+        frag.appendChild(empty);
+        el.innerHTML = ''; el.appendChild(frag); return;
+      }
+
+      // ── Now Available ──
+      if (notifs.length) {
+        const hdr = document.createElement('div');
+        hdr.className = 'cr-section-label';
+        hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-right:14px';
+        const lbl = document.createElement('span');
+        lbl.textContent = `Now Available (${notifs.length})`;
+        hdr.appendChild(lbl);
+        if (notifs.length > 1) {
+          const clr = document.createElement('button');
+          clr.style.cssText = 'background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:0';
+          clr.textContent = 'Clear all';
+          clr.addEventListener('click', () => { saveInboxNotifs([]); swSyncData(); renderInbox(); updateInboxBadge(); });
+          hdr.appendChild(clr);
+        }
+        frag.appendChild(hdr);
+        for (const notif of notifs) {
+          const row = document.createElement('div');
+          row.className = 'cr-row';
+          const info = document.createElement('div');
+          info.className = 'cr-info';
+          info.style.cursor = 'pointer';
+          const title = document.createElement('div');
+          title.className = 'cr-title';
+          title.textContent = `"${notif.query}" is now in the catalog`;
+          const sub = document.createElement('div');
+          sub.className = 'cr-sub';
+          sub.textContent = fmtDate(notif.ts) || 'Just added';
+          info.appendChild(title); info.appendChild(sub);
+          info.addEventListener('click', () => { closeInbox(); openCatalog(notif.query); });
+          const dismiss = document.createElement('button');
+          dismiss.style.cssText = 'background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;padding:0 2px;flex-shrink:0;line-height:1';
+          dismiss.textContent = '×'; dismiss.title = 'Dismiss';
+          dismiss.addEventListener('click', () => {
+            saveInboxNotifs(getInboxNotifs().filter(n => n.query !== notif.query));
+            swSyncData(); renderInbox(); updateInboxBadge();
+          });
+          row.appendChild(info); row.appendChild(dismiss);
+          frag.appendChild(row);
+        }
+      }
+
+      // ── Recently Added ──
+      if (newSongs.length) {
+        const hdr = document.createElement('div');
+        hdr.className = 'cr-section-label';
+        hdr.textContent = `Recently Added (${newSongs.length})`;
+        frag.appendChild(hdr);
+        // Group by artist → album for readability
+        const byArtist = {};
+        for (const s of newSongs) {
+          const a = s.artist || 'Unknown Artist';
+          if (!byArtist[a]) byArtist[a] = [];
+          byArtist[a].push(s);
+        }
+        const multiArtist = Object.keys(byArtist).length > 1;
+        for (const [artist, artistSongs] of Object.entries(byArtist).sort(([a],[b]) => a.localeCompare(b))) {
+          if (multiArtist) {
+            const albl = document.createElement('div');
+            albl.style.cssText = 'font-size:12px;font-weight:600;color:var(--text2);padding:10px 14px 4px';
+            albl.textContent = artist;
+            frag.appendChild(albl);
+          }
+          for (const s of artistSongs) {
+            const row = document.createElement('div');
+            row.className = 'cr-row';
+            row.innerHTML = `<div class="cr-info" style="cursor:pointer">
+              <div class="cr-title">${esc(s.title || 'Unknown')}</div>
+              <div class="cr-sub">${esc(s.album || '')}${s.album && s.artist ? ' · ' : ''}${esc(s.artist || '')}</div>
+            </div>`;
+            row.addEventListener('click', () => { closeInbox(); playSong(s.id, true, true); });
+            frag.appendChild(row);
+          }
+        }
+      }
+
+      el.innerHTML = ''; el.appendChild(frag);
     }
     function recordSearchMiss(q) {
       const key = q.trim().toLowerCase();
@@ -6122,6 +6366,10 @@ function setMS(song) {
     document.getElementById('mok').addEventListener('click', () => { const v = document.getElementById('mi').value.trim(); if (v && mcb) mcb(v); document.getElementById('mo').classList.remove('show'); });
     document.getElementById('mi').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('mok').click(); if (e.key === 'Escape') document.getElementById('mcancel').click(); });
 
+    // ── INBOX BUTTON ──────────────────────────────────────────────────────────────
+    document.getElementById('inbox-btn').addEventListener('click', openInbox);
+    document.getElementById('inbox-close').addEventListener('click', closeInbox);
+
     // ── SETTINGS ──────────────────────────────────────────────────────────────────
     document.getElementById('cfg-theme').addEventListener('change', e => applyTheme(e.target.checked ? 'dark' : 'light'));
     function showSet() { document.getElementById('cfg-url').value = cfg.url || ''; document.getElementById('cfg-key').value = cfg.apiKey || ''; document.getElementById('cfg-theme').checked = theme === 'dark'; document.getElementById('sp').classList.add('show'); }
@@ -6234,8 +6482,9 @@ function setMS(song) {
           // Notification tapped — open catalog with the resolved query
           openCatalog(e.data.query);
         } else if (e.data.type === 'misses-updated') {
-          // SW removed resolved misses — sync back to localStorage
+          // SW resolved some misses — add them as inbox notifications
           try { localStorage.setItem('jb-search-misses', JSON.stringify(e.data.misses)); } catch { }
+          checkForNewContent();
         }
       });
     }
@@ -6277,6 +6526,7 @@ function setMS(song) {
       } else {
         console.log('[Init] Offline — using cached data only');
       }
+      updateInboxBadge();
       window.dispatchEvent(new Event('jb-ready'));
     }
     init();
