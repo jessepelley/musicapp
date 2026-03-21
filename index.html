@@ -2348,13 +2348,6 @@
           <line x1="3" y1="18" x2="21" y2="18" />
         </svg>
       </button>
-      <button class="tb icon-only" id="setbtn" title="Settings">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3" />
-          <path
-            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-      </button>
       <span id="tb-brand">Music</span>
       <span id="sync-status">—</span>
       <button class="tb accent" id="syncbtn">
@@ -2364,6 +2357,13 @@
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
         </svg>
         Sync
+      </button>
+      <button class="tb icon-only" id="setbtn" title="Settings">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
       </button>
       <div id="search-wrap" style="position:relative;display:flex;align-items:center;flex-shrink:0">
         <input type="text" id="search" placeholder="Search…">
@@ -2719,6 +2719,19 @@
     <div class="ci danger" id="pl-ctx-delete">Delete Playlist</div>
   </div>
 
+  <!-- GROUP CONTEXT MENU (long-press on album tile or artist row) -->
+  <div id="mob-group-ctx" style="display:none;position:fixed;z-index:200;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;box-shadow:0 4px 20px var(--shadow);padding:4px 0;min-width:200px">
+    <div style="padding:8px 14px 6px;font-size:12px;color:var(--text3);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="grp-ctx-label"></div>
+    <div class="cs"></div>
+    <div class="ci" id="grp-ctx-play">▶ Play All</div>
+    <div class="ci" id="grp-ctx-next">Play Next</div>
+    <div class="cs"></div>
+    <div class="ci" id="grp-ctx-cache">↓ Cache All</div>
+    <div class="ci danger" id="grp-ctx-uncache">Remove from Cache</div>
+    <div class="cs"></div>
+    <div id="grp-ctx-pls"></div>
+  </div>
+
   <!-- CONTEXT MENU -->
   <!-- CATALOG SEARCH OVERLAY -->
   <div id="catalog-overlay">
@@ -2853,6 +2866,7 @@
     let mobileAlbumDrilldown = null;  // {album, artistKey, label} when drilling into an album tile on mobile
     let mobileArtistDrilldown = null; // {displayName, key} when viewing songs for a specific artist on mobile
     let mobileNavMode = true;         // true = show library nav list on mobile (home screen)
+    let searchAllSongs = false;       // when true, search applies across all library songs, not just current view
     // Per-view sort state: each view remembers its own sort col/dir
     // Default sort cols per view (overridable by clicking headers)
     const VIEW_DEFAULTS = {
@@ -3178,10 +3192,11 @@
     let catalogOpen = false;
     let catalogArtistView = null; // artist name when drilling into catalog artist songs
 
-    function openCatalog() {
+    function openCatalog(prefillQ) {
       catalogOpen = true;
       document.getElementById('catalog-overlay').classList.add('open');
       const input = document.getElementById('catalog-input');
+      if (prefillQ) { input.value = prefillQ; }
       // Focus + trigger keyboard immediately — the overlay is now visible (flex), so
       // we use a short rAF+timeout to let the browser paint the overlay before focusing.
       // iOS Safari requires focus() to be called synchronously within the user-gesture
@@ -3189,7 +3204,7 @@
       // won't appear. Calling focus() right here (overlay is already display:flex from
       // classList.add above) satisfies that requirement.
       input.focus();
-      renderCatalogResults('');
+      renderCatalogResults(prefillQ || '');
       // Fetch shared search misses from server (async, updates display when ready)
       if (cfg.url && cfg.apiKey && online) {
         afetch('get_search_misses').then(d => {
@@ -4256,6 +4271,13 @@ function setMS(song) {
       const now = Date.now();
       const lib = libSongs(); // user's library (catalog filtered to userLib membership)
 
+      // When "search all songs" is active, bypass view filtering and search across all library songs
+      if (searchAllSongs && sq) {
+        const q = sq.toLowerCase();
+        s = lib.filter(x => (x.title||'').toLowerCase().includes(q)||(x.artist||'').toLowerCase().includes(q)||(x.album||'').toLowerCase().includes(q));
+        return applySort(s, col, dir);
+      }
+
       if (view === 'upnext') {
         // Show current queue in order from current position
         const allQ = queue.map(id => songs.find(x => x.id === id)).filter(Boolean);
@@ -4541,6 +4563,9 @@ function setMS(song) {
       }
       if (mobile && (view === 'albums' || view === 'compilations') && !mobileAlbumDrilldown) {
         renderMobAlbumGrid(); return;
+      }
+      if (mobile && view === 'cached' && !mobileAlbumDrilldown) {
+        renderMobCacheGrid(); return;
       }
 
       // Drilldown songs (album or artist)
@@ -4989,11 +5014,20 @@ function setMS(song) {
         }
       });
       list.innerHTML = ''; list.appendChild(frag);
-      // Append "Browse Catalogue" footer when search is active
+      // Append search footer when search is active
       if (sq && view !== 'upnext') {
         const footer = document.createElement('div');
-        footer.style.cssText = 'text-align:center;padding:20px 16px;color:var(--text3);font-size:12px';
-        footer.innerHTML = `Not finding what you want? <button onclick="openCatalog()" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0;text-decoration:underline">Browse Catalogue</button>`;
+        footer.style.cssText = 'text-align:center;padding:16px 16px 20px;color:var(--text3);font-size:12px;display:flex;flex-direction:column;gap:8px;align-items:center';
+        const allSongsBtn = document.createElement('button');
+        allSongsBtn.style.cssText = 'background:none;border:1px solid var(--accent);color:var(--accent);font-size:12px;cursor:pointer;padding:4px 10px;border-radius:12px';
+        allSongsBtn.textContent = searchAllSongs ? 'Searching all songs — show current view only' : 'Search all songs in library';
+        allSongsBtn.addEventListener('click', () => { searchAllSongs = !searchAllSongs; renderList(); });
+        const browseBtn = document.createElement('button');
+        browseBtn.style.cssText = 'background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;padding:0;text-decoration:underline';
+        browseBtn.textContent = 'Browse Catalogue';
+        browseBtn.addEventListener('click', () => openCatalog(sq));
+        footer.appendChild(allSongsBtn);
+        footer.appendChild(browseBtn);
         list.appendChild(footer);
       }
       updateStatusBar(s);
@@ -5091,7 +5125,7 @@ function setMS(song) {
       const grid = document.createElement('div');
       grid.id = 'mob-album-grid';
 
-      function makeTile(album, artistKey, displayArtist, artUrl, label, isIncomplete) {
+      function makeTile(album, artistKey, displayArtist, artUrl, label, isIncomplete, tileSongs) {
         const tile = document.createElement('div');
         tile.className = 'mob-album-tile';
         // Square wrapper via padding-bottom trick (reliable cross-browser)
@@ -5099,10 +5133,15 @@ function setMS(song) {
         artWrap.className = 'mob-album-art-wrap';
         const artInner = document.createElement('div');
         artInner.className = 'mob-album-art-inner';
+        const placeholderSvg = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.3"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
         if (artUrl) {
-          artInner.innerHTML = `<img src="${esc(artUrl)}" alt="" onerror="this.innerHTML='<svg width=28 height=28 viewBox=\\"0 0 24 24\\" fill=none stroke=currentColor stroke-width=1.5 style=\\"opacity:.3\\"><path d=\\"M9 18V5l12-2v13\\"/><circle cx=6 cy=18 r=3/><circle cx=18 cy=16 r=3/></svg>'">`;
+          const img = document.createElement('img');
+          img.src = artUrl;
+          img.alt = '';
+          img.addEventListener('error', function() { this.parentNode.innerHTML = placeholderSvg; });
+          artInner.appendChild(img);
         } else {
-          artInner.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.3"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+          artInner.innerHTML = placeholderSvg;
         }
         artWrap.appendChild(artInner);
         const nameDiv = document.createElement('div');
@@ -5116,25 +5155,135 @@ function setMS(song) {
           artistDiv.textContent = displayArtist;
           tile.appendChild(artistDiv);
         }
+        let tilePress;
         tile.addEventListener('click', () => {
           mobileAlbumDrilldown = isIncomplete
             ? { isIncomplete: true, label: 'Incomplete' }
             : { album: (album || '').toLowerCase().trim(), artistKey, label: album || 'Unknown' };
+          pushMobileHistory();
           renderList();
         });
+        if (tileSongs && tileSongs.length) {
+          tile.addEventListener('touchstart', e => {
+            const t = e.touches[0];
+            tilePress = setTimeout(() => {
+              e.preventDefault();
+              showGroupCtx(t.clientX, t.clientY, tileSongs, label);
+            }, 600);
+          }, { passive: true });
+          tile.addEventListener('touchend', () => clearTimeout(tilePress), { passive: true });
+          tile.addEventListener('touchmove', () => clearTimeout(tilePress), { passive: true });
+        }
         return tile;
       }
 
       for (const g of complete) {
-        grid.appendChild(makeTile(g.album, g.artistKey, g.displayArtist, g.artUrl, g.album || 'Unknown', false));
+        grid.appendChild(makeTile(g.album, g.artistKey, g.displayArtist, g.artUrl, g.album || 'Unknown', false, g.songs));
       }
       if (incomplete.length > 0) {
         // Pick first art from incomplete group, or none
         const incArt = incomplete.find(g => g.artUrl)?.artUrl || null;
-        grid.appendChild(makeTile(null, null, null, incArt, 'Incomplete', true));
+        const incSongs = incomplete.flatMap(g => g.songs);
+        grid.appendChild(makeTile(null, null, null, incArt, 'Incomplete', true, incSongs));
       }
 
       frag.appendChild(grid);
+      list.innerHTML = '';
+      list.appendChild(frag);
+      updateStatusBar([]);
+    }
+
+    // Render cached songs as an album artwork grid on mobile
+    function renderMobCacheGrid() {
+      const list = document.getElementById('sl');
+      const colHdrs = document.getElementById('col-hdrs');
+      const backBar = document.getElementById('mob-back-bar');
+      if (colHdrs) colHdrs.style.display = 'none';
+      if (backBar) backBar.classList.remove('show');
+
+      const lib = libSongs();
+      const cachedSongs = lib.filter(x => cachedIds.has(x.id));
+
+      // Group by album + artist (same logic as getMobAlbumGroups but over cached songs)
+      const groups = {};
+      for (const song of cachedSongs) {
+        const artistKey = _groupArtist(song);
+        const albumKey = (song.album || '').toLowerCase().trim() + '|||' + artistKey;
+        if (!groups[albumKey]) {
+          groups[albumKey] = {
+            album: song.album || '',
+            artistKey,
+            displayArtist: song.album_artist || song.artist || '',
+            songs: [],
+            artUrl: null
+          };
+        }
+        groups[albumKey].songs.push(song);
+        if (!groups[albumKey].artUrl && getMeta(song.id).albumArtUrl) {
+          groups[albumKey].artUrl = getMeta(song.id).albumArtUrl;
+        }
+      }
+
+      const albumList = Object.values(groups).sort((a, b) => {
+        const ar = a.artistKey.toLowerCase(), br = b.artistKey.toLowerCase();
+        if (ar !== br) return ar < br ? -1 : 1;
+        return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
+      });
+
+      const frag = document.createDocumentFragment();
+      if (!albumList.length) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'text-align:center;padding:60px 20px;color:var(--text3);font-size:14px';
+        empty.textContent = 'No cached songs';
+        frag.appendChild(empty);
+      } else {
+        const grid = document.createElement('div');
+        grid.id = 'mob-album-grid';
+        const placeholderSvg = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.3"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+        for (const g of albumList) {
+          const tile = document.createElement('div');
+          tile.className = 'mob-album-tile';
+          const artWrap = document.createElement('div');
+          artWrap.className = 'mob-album-art-wrap';
+          const artInner = document.createElement('div');
+          artInner.className = 'mob-album-art-inner';
+          if (g.artUrl) {
+            const img = document.createElement('img');
+            img.src = g.artUrl;
+            img.alt = '';
+            img.addEventListener('error', function() { this.parentNode.innerHTML = placeholderSvg; });
+            artInner.appendChild(img);
+          } else {
+            artInner.innerHTML = placeholderSvg;
+          }
+          artWrap.appendChild(artInner);
+          const nameDiv = document.createElement('div');
+          nameDiv.className = 'mob-album-name';
+          nameDiv.textContent = g.album || 'Unknown';
+          const artistDiv = document.createElement('div');
+          artistDiv.className = 'mob-album-artist';
+          artistDiv.textContent = g.displayArtist;
+          tile.appendChild(artWrap);
+          tile.appendChild(nameDiv);
+          tile.appendChild(artistDiv);
+          tile.addEventListener('click', () => {
+            mobileAlbumDrilldown = { album: g.album.toLowerCase().trim(), artistKey: g.artistKey, label: g.album || 'Unknown' };
+            pushMobileHistory();
+            renderList();
+          });
+          let cachePress;
+          tile.addEventListener('touchstart', e => {
+            const t = e.touches[0];
+            cachePress = setTimeout(() => {
+              showGroupCtx(t.clientX, t.clientY, g.songs, g.album || 'Unknown');
+            }, 600);
+          }, { passive: true });
+          tile.addEventListener('touchend', () => clearTimeout(cachePress), { passive: true });
+          tile.addEventListener('touchmove', () => clearTimeout(cachePress), { passive: true });
+          grid.appendChild(tile);
+        }
+        frag.appendChild(grid);
+      }
       list.innerHTML = '';
       list.appendChild(frag);
       updateStatusBar([]);
@@ -5195,6 +5344,7 @@ function setMS(song) {
           mobileAlbumDrilldown = null;
           mobileArtistDrilldown = null;
           switchView(id);
+          pushMobileHistory();
         });
         frag.appendChild(el);
       }
@@ -5233,6 +5383,7 @@ function setMS(song) {
             mobileAlbumDrilldown = null;
             mobileArtistDrilldown = null;
             switchView(String(pl.id));
+            pushMobileHistory();
           });
           // Long-press to rename
           let plPressTimer;
@@ -5284,8 +5435,19 @@ function setMS(song) {
           <div class="mob-artist-chevron">›</div>`;
         row.addEventListener('click', () => {
           mobileArtistDrilldown = { displayName: artist.displayName, key: artist.key };
+          pushMobileHistory();
           renderList();
         });
+        let artistPress;
+        row.addEventListener('touchstart', e => {
+          const t = e.touches[0];
+          artistPress = setTimeout(() => {
+            const artistSongs = lib.filter(s => _groupArtist(s) === artist.key);
+            showGroupCtx(t.clientX, t.clientY, artistSongs, artist.displayName);
+          }, 600);
+        }, { passive: true });
+        row.addEventListener('touchend', () => clearTimeout(artistPress), { passive: true });
+        row.addEventListener('touchmove', () => clearTimeout(artistPress), { passive: true });
         frag.appendChild(row);
       }
 
@@ -5414,6 +5576,7 @@ function setMS(song) {
       if (window.innerWidth <= 700) mobileNavMode = false; // entering a view hides the nav home screen
       // Clear search on view change
       sq = '';
+      searchAllSongs = false;
       const searchEl = document.getElementById('search');
       if (searchEl) searchEl.value = '';
       const mobSearchEl = document.getElementById('mob-search-input');
@@ -5447,6 +5610,10 @@ function setMS(song) {
       document.getElementById('sidebar-overlay').classList.remove('show');
     }
     document.getElementById('menu-btn').addEventListener('click', () => {
+      // On mobile use browser history to go back (enables swipe-back to stay consistent)
+      if (window.innerWidth <= 700 && history.state && !history.state.mobileNavMode) {
+        history.back(); return;
+      }
       mobileNavMode = true;
       mobileAlbumDrilldown = null;
       mobileArtistDrilldown = null;
@@ -5464,6 +5631,10 @@ function setMS(song) {
 
     // ── MOBILE BACK BAR (album / artist drilldown) ────────────────────────────────
     document.getElementById('mob-back-bar').addEventListener('click', () => {
+      if (window.innerWidth <= 700 && history.state &&
+          (history.state.mobileAlbumDrilldown || history.state.mobileArtistDrilldown)) {
+        history.back(); return;
+      }
       mobileAlbumDrilldown = null;
       mobileArtistDrilldown = null;
       // Update toolbar brand back to view name
@@ -5640,6 +5811,61 @@ function setMS(song) {
     document.getElementById('ctx-goto-album').addEventListener('click',  () => { if (ctxId) { const s = songs.find(x => x.id === ctxId); if (s) goToAlbum(s.album, s.artist); } hideCtx(); });
     document.addEventListener('click', hideCtx);
 
+    // ── GROUP CONTEXT MENU (album tile / artist row long-press) ──────────────────
+    let grpCtxSongs = [];
+    function showGroupCtx(x, y, songs, label) {
+      grpCtxSongs = songs;
+      const menu = document.getElementById('mob-group-ctx');
+      document.getElementById('grp-ctx-label').textContent = label;
+      // Cache All / Remove from Cache
+      const allCached = songs.every(s => cachedIds.has(s.id));
+      document.getElementById('grp-ctx-cache').style.display = allCached ? 'none' : '';
+      document.getElementById('grp-ctx-uncache').style.display = allCached ? '' : 'none';
+      // Playlists sub-menu
+      const pi = document.getElementById('grp-ctx-pls');
+      pi.innerHTML = pls.map(pl => `<div class="ci" data-plid="${pl.id}">Add to "${esc(pl.name)}"</div>`).join('');
+      pi.querySelectorAll('.ci').forEach(el => el.addEventListener('click', () => {
+        const plId = el.dataset.plid;
+        grpCtxSongs.forEach(s => addToPl(plId, s.id));
+        toast(`Added ${grpCtxSongs.length} songs to playlist`);
+        hideGroupCtx();
+      }));
+      menu.style.display = 'block';
+      const mw = menu.offsetWidth || 200, mh = 220;
+      menu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
+      menu.style.top  = Math.min(y, window.innerHeight - mh - 8) + 'px';
+    }
+    function hideGroupCtx() { document.getElementById('mob-group-ctx').style.display = 'none'; }
+    document.getElementById('grp-ctx-play').addEventListener('click', () => {
+      if (!grpCtxSongs.length) return;
+      freezeQueue(null);
+      queue.length = 0; queue.push(...grpCtxSongs.map(s => s.id));
+      qi = 0; playSong(queue[0], true, true);
+      hideGroupCtx();
+    });
+    document.getElementById('grp-ctx-next').addEventListener('click', () => {
+      if (!grpCtxSongs.length) return;
+      if (!queue.length) freezeQueue(null);
+      queue.splice(qi + 1, 0, ...grpCtxSongs.map(s => s.id));
+      updCounts(); toast(`${grpCtxSongs.length} songs queued next`);
+      hideGroupCtx();
+    });
+    document.getElementById('grp-ctx-cache').addEventListener('click', () => {
+      const toCache = grpCtxSongs.filter(s => !cachedIds.has(s.id));
+      toCache.forEach(s => cacheSong(s.id));
+      toast(`Caching ${toCache.length} songs…`);
+      hideGroupCtx();
+    });
+    document.getElementById('grp-ctx-uncache').addEventListener('click', () => {
+      grpCtxSongs.forEach(s => uncache(s.id));
+      toast(`Removed ${grpCtxSongs.length} songs from cache`);
+      hideGroupCtx();
+    });
+    document.addEventListener('click', e => {
+      const menu = document.getElementById('mob-group-ctx');
+      if (menu.style.display !== 'none' && !menu.contains(e.target)) hideGroupCtx();
+    });
+
     // ── PLAYLIST CONTEXT MENU ────────────────────────────────────────────────────
     let plCtxId = null;
     function showPlCtx(x, y, plId) {
@@ -5796,12 +6022,8 @@ function setMS(song) {
     }
     document.getElementById('mob-search-trigger').addEventListener('click', e => {
       e.stopPropagation();
-      if (window.innerWidth <= 700) {
-        // On mobile: open catalog search (at bottom) which is the unified search
-        openCatalog();
-      } else {
-        openMobSearch();
-      }
+      // Both mobile and desktop use the inline search to filter current view
+      openMobSearch();
     });
     document.getElementById('mob-search-input').addEventListener('input', e => {
       sq = e.target.value;
@@ -5901,6 +6123,26 @@ function setMS(song) {
     document.getElementById('np-star').addEventListener('click', () => { const cs = curSong(); if (cs) toggleStar(cs.id); });
     document.getElementById('np-show-in-songs').addEventListener('click', () => { closeNPPanel(); showInLibrary(); });
 
+    // ── MOBILE BROWSER HISTORY ────────────────────────────────────────────────────
+    // Push state for mobile navigation so swipe-back (iOS Safari edge swipe) works.
+    function pushMobileHistory() {
+      if (window.innerWidth > 700) return;
+      history.pushState({
+        view,
+        mobileNavMode,
+        mobileAlbumDrilldown: mobileAlbumDrilldown ? JSON.parse(JSON.stringify(mobileAlbumDrilldown)) : null,
+        mobileArtistDrilldown: mobileArtistDrilldown ? JSON.parse(JSON.stringify(mobileArtistDrilldown)) : null,
+      }, '');
+    }
+    window.addEventListener('popstate', e => {
+      if (window.innerWidth > 700 || !e.state) return;
+      view = e.state.view || 'all';
+      mobileNavMode = !!e.state.mobileNavMode;
+      mobileAlbumDrilldown = e.state.mobileAlbumDrilldown || null;
+      mobileArtistDrilldown = e.state.mobileArtistDrilldown || null;
+      renderList(); renderSB();
+    });
+
     // ── INIT ──────────────────────────────────────────────────────────────────────
     async function init() {
       console.log('[Init] Starting…');
@@ -5912,6 +6154,10 @@ function setMS(song) {
       try { const l = localStorage.getItem('jb-userlib'); if (l) { userLib = JSON.parse(l); } } catch { }
       await pullPlaylists();
       rebuildQ(); renderList(); renderSB();
+      // Set initial history state for mobile so swipe-back has a state to restore
+      if (window.innerWidth <= 700) {
+        history.replaceState({ view, mobileNavMode: true, mobileAlbumDrilldown: null, mobileArtistDrilldown: null }, '');
+      }
       document.getElementById('vf').style.width = (aud.volume * 100) + '%';
       document.getElementById('np-panel-vf').style.width = (aud.volume * 100) + '%';
       if (cfg.url && cfg.apiKey && navigator.onLine) {
