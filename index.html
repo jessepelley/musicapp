@@ -1991,10 +1991,6 @@
       cursor: pointer;
     }
 
-    .s-flag-col svg {
-      /* transition removed — was causing scroll lag and graphical glitch after heart toggle */
-    }
-
     /* Star */
     .star-btn svg {
       color: var(--text3);
@@ -4758,6 +4754,7 @@ function setMS(song) {
       }
       empty.classList.remove('show');
       const frag = document.createDocumentFragment();
+      //const mobile = window.innerWidth <= 700;
 
       s.forEach((song, i) => {
         const isNow    = cs && song.id === cs.id;
