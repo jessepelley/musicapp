@@ -1266,10 +1266,20 @@
         margin-left: auto;
       }
 
-      /* Hide sync pill on mobile — only show when active (syncing) or error */
+      /* Hide sync pill on mobile by default; .mob-home class on toolbar reveals it at left */
       #sync-status {
         display: none;
       }
+      /* Home screen: pill visible at far left, tappable */
+      #toolbar.mob-home #sync-status {
+        display: flex;
+        position: static;
+        transform: none;
+        cursor: pointer;
+        font-size: 10px;
+        padding: 2px 8px;
+      }
+      /* Loading/error: always show (even off home), centred in toolbar */
       #sync-status.loading,
       #sync-status.err {
         display: flex;
@@ -1278,6 +1288,14 @@
         transform: translateX(-50%);
         font-size: 9.5px;
         padding: 2px 6px;
+        cursor: default;
+      }
+      /* On home screen, loading/error stay at left (not centred) */
+      #toolbar.mob-home #sync-status.loading,
+      #toolbar.mob-home #sync-status.err {
+        position: static;
+        transform: none;
+        cursor: pointer;
       }
 
       /* #menu-btn repurposed as ← Library back button on mobile; shown/hidden via JS */
@@ -4880,11 +4898,14 @@ function setMS(song) {
       // ── Update menu-btn appearance (mobile back-to-library button) ─────────────
       const menuBtn = document.getElementById('menu-btn');
       if (mobile && menuBtn) {
+        const toolbar = document.getElementById('toolbar');
         if (mobileNavMode) {
           menuBtn.style.display = 'none';
+          if (toolbar) toolbar.classList.add('mob-home');
         } else {
           menuBtn.style.display = 'flex';
           menuBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg><span>Library</span>`;
+          if (toolbar) toolbar.classList.remove('mob-home');
         }
       }
 
@@ -6480,6 +6501,10 @@ function setMS(song) {
     // cache-view-btn removed — now in context menu as ctx-cache-view
     document.getElementById('new-pl').addEventListener('click', () => openModal('New Playlist', 'My Playlist', createPl));
     document.getElementById('syncbtn').addEventListener('click', syncLib);
+    // On mobile the sync-status pill is shown at the left on the home screen — tapping opens catalog
+    document.getElementById('sync-status').addEventListener('click', () => {
+      if (window.innerWidth <= 700) openCatalog();
+    });
 
     // ── MODAL ─────────────────────────────────────────────────────────────────────
     let mcb = null;
@@ -6538,13 +6563,13 @@ function setMS(song) {
     // Push state for mobile navigation so swipe-back (iOS Safari edge swipe) works.
     function pushMobileHistory() {
       if (window.innerWidth > 700) return;
-      const sl = document.getElementById('sl');
+      const lw = document.getElementById('lw');
       history.pushState({
         view,
         mobileNavMode,
         mobileAlbumDrilldown: mobileAlbumDrilldown ? JSON.parse(JSON.stringify(mobileAlbumDrilldown)) : null,
         mobileArtistDrilldown: mobileArtistDrilldown ? JSON.parse(JSON.stringify(mobileArtistDrilldown)) : null,
-        scrollTop: sl ? sl.scrollTop : 0,
+        scrollTop: lw ? lw.scrollTop : 0,
       }, '');
     }
     window.addEventListener('popstate', e => {
@@ -6557,8 +6582,8 @@ function setMS(song) {
       // Restore scroll position after render
       const savedScroll = e.state.scrollTop || 0;
       if (savedScroll > 0) {
-        const sl = document.getElementById('sl');
-        if (sl) requestAnimationFrame(() => { sl.scrollTop = savedScroll; });
+        const lw = document.getElementById('lw');
+        if (lw) requestAnimationFrame(() => { lw.scrollTop = savedScroll; });
       }
     });
 
