@@ -6563,13 +6563,13 @@ function setMS(song) {
     // Push state for mobile navigation so swipe-back (iOS Safari edge swipe) works.
     function pushMobileHistory() {
       if (window.innerWidth > 700) return;
-      const sl = document.getElementById('sl');
+      const lw = document.getElementById('lw');
       history.pushState({
         view,
         mobileNavMode,
         mobileAlbumDrilldown: mobileAlbumDrilldown ? JSON.parse(JSON.stringify(mobileAlbumDrilldown)) : null,
         mobileArtistDrilldown: mobileArtistDrilldown ? JSON.parse(JSON.stringify(mobileArtistDrilldown)) : null,
-        scrollTop: sl ? sl.scrollTop : 0,
+        scrollTop: lw ? lw.scrollTop : 0,
       }, '');
     }
     window.addEventListener('popstate', e => {
@@ -6582,8 +6582,8 @@ function setMS(song) {
       // Restore scroll position after render
       const savedScroll = e.state.scrollTop || 0;
       if (savedScroll > 0) {
-        const sl = document.getElementById('sl');
-        if (sl) requestAnimationFrame(() => { sl.scrollTop = savedScroll; });
+        const lw = document.getElementById('lw');
+        if (lw) requestAnimationFrame(() => { lw.scrollTop = savedScroll; });
       }
     });
 
