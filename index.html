@@ -4956,6 +4956,8 @@ function setMS(song) {
           if (brand) brand.textContent = mobileArtistDrilldown.displayName;
         } else {
           backBar.classList.remove('show');
+          const brand = document.getElementById('tb-brand');
+          if (brand) brand.textContent = viewDisplayName(view);
         }
       }
 
