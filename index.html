@@ -407,6 +407,7 @@
       flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
     }
 
     #lw::-webkit-scrollbar {
@@ -3022,6 +3023,8 @@
     let playing = false, shuf = false, rep = 0;
     let origQueue = []; // natural order saved when shuffle is on
     let playbackView = 'all'; // view active when playback was last initiated via freezeQueue
+    let playbackAlbumDrilldown = null; // mobileAlbumDrilldown at time of last freezeQueue
+    let playbackArtistDrilldown = null; // mobileArtistDrilldown at time of last freezeQueue
     let view = 'all', selId = null, ctxId = null, sq = '';
     let mobileAlbumDrilldown = null;  // {album, artistKey, label} when drilling into an album tile on mobile
     let mobileArtistDrilldown = null; // {displayName, key} when viewing songs for a specific artist on mobile
@@ -4073,8 +4076,13 @@
       const cs = curSong(); if (!cs) return;
       // Navigate back to the view where playback was initiated
       const target = playbackView || 'all';
-      if (view !== target) {
-        view = target;
+      view = target;
+      if (window.innerWidth <= 700) {
+        // Mobile: restore full drilldown state so the song row is actually rendered
+        mobileAlbumDrilldown = playbackAlbumDrilldown;
+        mobileArtistDrilldown = playbackArtistDrilldown;
+        mobileNavMode = false;
+      } else {
         document.querySelectorAll('.ni').forEach(el => el.classList.toggle('active', el.dataset.view === target));
       }
       selId = cs.id;
@@ -4278,6 +4286,8 @@ function setMS(song) {
     }
     function freezeQueue(startId) {
       playbackView = view;
+      playbackAlbumDrilldown = mobileAlbumDrilldown ? JSON.parse(JSON.stringify(mobileAlbumDrilldown)) : null;
+      playbackArtistDrilldown = mobileArtistDrilldown ? JSON.parse(JSON.stringify(mobileArtistDrilldown)) : null;
       const s = getViewSongs();
       const natural = s.map(x => x.id);
       if (shuf) {
@@ -6014,6 +6024,7 @@ function setMS(song) {
     });
     document.getElementById('np-panel-bar').addEventListener('click', closeNPPanel);
     document.getElementById('np-panel-close').addEventListener('click', closeNPPanel);
+    document.getElementById('np-panel-art').addEventListener('click', closeNPPanel);
 
     let touchStartY = 0;
     document.getElementById('nowplaying-panel').addEventListener('touchstart', e => { touchStartY = e.touches[0].clientY; }, { passive: true });
@@ -6583,7 +6594,8 @@ function setMS(song) {
       const savedScroll = e.state.scrollTop || 0;
       if (savedScroll > 0) {
         const lw = document.getElementById('lw');
-        if (lw) requestAnimationFrame(() => { lw.scrollTop = savedScroll; });
+        // Double rAF: iOS Safari needs two frames after DOM changes before scrollTop takes effect
+        if (lw) requestAnimationFrame(() => requestAnimationFrame(() => { lw.scrollTop = savedScroll; }));
       }
     });
 
