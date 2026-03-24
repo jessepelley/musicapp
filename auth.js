@@ -74,17 +74,26 @@ const auth = {
      * Open the auth URL in Safari instead so passkeys work normally.
      * The redirect back to music.jjjp.ca will re-open the PWA.
      */
-    login() {
-        const redirectUrl = window.location.origin + window.location.pathname;
-        const authUrl = AUTH_CONFIG.authUrl
-            + '?app=' + encodeURIComponent(AUTH_CONFIG.app)
-            + '&redirect=' + encodeURIComponent(redirectUrl);
+login() {
+    const redirectUrl = window.location.origin + window.location.pathname;
+    const authUrl = AUTH_CONFIG.authUrl
+        + '?app=' + encodeURIComponent(AUTH_CONFIG.app)
+        + '&redirect=' + encodeURIComponent(redirectUrl);
 
-        // Cross-origin navigation (music.jjjp.ca → jjjp.ca) should
-        // automatically open in Safari on macOS standalone web apps,
-        // since the auth URL is outside the PWA's scope.
+    // Detect if running in standalone mode (Dock / PWA)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                      || window.navigator.standalone === true;
+
+    if (isStandalone) {
+        // Open auth in Safari proper so WebAuthn / passkeys work
+        // Optional: show a brief alert for user clarity
+        alert('Authentication will open Safari to complete login.');
+        window.open(authUrl, '_blank');
+    } else {
+        // Normal browser flow
         window.location.href = authUrl;
-    },
+    }
+},
 
     /**
      * Check if a token is stored locally.
