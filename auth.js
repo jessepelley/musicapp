@@ -80,24 +80,10 @@ const auth = {
             + '?app=' + encodeURIComponent(AUTH_CONFIG.app)
             + '&redirect=' + encodeURIComponent(redirectUrl);
 
-        const isStandalone = window.navigator.standalone === true
-            || window.matchMedia('(display-mode: standalone)').matches;
-
-        if (isStandalone) {
-            // window.open() stays inside the PWA on macOS Safari.
-            // A click on an <a target="_blank"> is the only way to
-            // reliably escape the standalone context into Safari.
-            const a = document.createElement('a');
-            a.href = authUrl;
-            a.target = '_blank';
-            a.rel = 'noreferrer';
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        } else {
-            window.location.href = authUrl;
-        }
+        // Cross-origin navigation (music.jjjp.ca → jjjp.ca) should
+        // automatically open in Safari on macOS standalone web apps,
+        // since the auth URL is outside the PWA's scope.
+        window.location.href = authUrl;
     },
 
     /**
