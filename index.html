@@ -2880,6 +2880,8 @@
     <div class="ci danger" id="grp-ctx-uncache">Remove from Cache</div>
     <div class="cs"></div>
     <div id="grp-ctx-pls"></div>
+    <div class="cs" id="grp-ctx-lib-sep" style="display:none"></div>
+    <div class="ci danger" id="grp-ctx-lib-remove" style="display:none">Remove from Library</div>
   </div>
 
   <!-- WHAT'S NEW INBOX OVERLAY -->
@@ -6141,18 +6143,6 @@ function setMS(song) {
       // Re-apply .msel on all currently-rendered rows
       const sl = document.getElementById('sl');
       if (sl) sl.querySelectorAll('.sr').forEach(r => r.classList.toggle('msel', selectedIds.has(r.dataset.id)));
-      // Show/hide action bar
-      const bar = document.getElementById('msel-bar');
-      if (!bar) return;
-      const n = selectedIds.size;
-      if (n > 0) {
-        bar.classList.add('show');
-        document.getElementById('msel-count').textContent = `${n} song${n !== 1 ? 's' : ''} selected`;
-        const allCached = getSelSongs().every(s => cachedIds.has(s.id));
-        document.getElementById('msel-cache').textContent = allCached ? '✕ Remove from Cache' : '↓ Cache';
-      } else {
-        bar.classList.remove('show');
-      }
     }
 
     // Action bar button handlers
@@ -6289,6 +6279,10 @@ function setMS(song) {
         toast(`Added ${grpCtxSongs.length} songs to playlist`);
         hideGroupCtx();
       }));
+      // Remove from Library — shown when any song in the group is in the user's library (incl. missing ghosts)
+      const anyInLib = songs.some(s => s._missing || userLib[String(s.id)]);
+      document.getElementById('grp-ctx-lib-sep').style.display    = anyInLib ? '' : 'none';
+      document.getElementById('grp-ctx-lib-remove').style.display = anyInLib ? '' : 'none';
       menu.style.display = 'block';
       const mw = menu.offsetWidth || 200, mh = 220;
       menu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
@@ -6319,6 +6313,17 @@ function setMS(song) {
       grpCtxSongs.forEach(s => uncache(s.id));
       toast(`Removed ${grpCtxSongs.length} songs from cache`);
       hideGroupCtx();
+    });
+    document.getElementById('grp-ctx-lib-remove').addEventListener('click', async () => {
+      const toRemove = grpCtxSongs.filter(s => s._missing || userLib[String(s.id)]);
+      if (!toRemove.length) { hideGroupCtx(); return; }
+      if (!confirm(`Remove ${toRemove.length} song${toRemove.length !== 1 ? 's' : ''} from your library?`)) { hideGroupCtx(); return; }
+      toRemove.forEach(s => { delete userLib[String(s.id)]; });
+      await pushUserLib();
+      renderList(); renderSB(); updCounts();
+      clearSelection();
+      hideGroupCtx();
+      toast(`Removed ${toRemove.length} song${toRemove.length !== 1 ? 's' : ''} from library`);
     });
     document.addEventListener('click', e => {
       const menu = document.getElementById('mob-group-ctx');
