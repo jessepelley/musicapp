@@ -40,7 +40,7 @@ const AUTH_CONFIG = {
     userKey:    'jjjp_music_user',
 };
 
-export const auth = {
+const auth = {
 
     /**
      * Call on every page load. If ?token= is in the URL, store it
