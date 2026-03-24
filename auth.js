@@ -84,8 +84,17 @@ const auth = {
             || window.matchMedia('(display-mode: standalone)').matches;
 
         if (isStandalone) {
-            // Open in Safari so passkeys work; redirect returns to PWA
-            window.open(authUrl, '_blank');
+            // window.open() stays inside the PWA on macOS Safari.
+            // A click on an <a target="_blank"> is the only way to
+            // reliably escape the standalone context into Safari.
+            const a = document.createElement('a');
+            a.href = authUrl;
+            a.target = '_blank';
+            a.rel = 'noreferrer';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         } else {
             window.location.href = authUrl;
         }
