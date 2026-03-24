@@ -13,6 +13,7 @@ define('API_KEYS',    [
 ]);
 define('CACHE_FILE',       __DIR__ . '/.library-cache.json');
 define('FINGERPRINT_FILE', __DIR__ . '/.library-fingerprint');
+define('SONG_CACHE_FILE',  __DIR__ . '/.song-meta-cache.json');
 define('CACHE_TTL',        86400); // 24 hours
 define('DEBUG',       false);
 define('ART_CACHE_DIR', __DIR__ . '/artcache');
@@ -1051,7 +1052,18 @@ function handleLibrary() {
         return;
     }
     @set_time_limit(300);
-    $songs = doScanDir(MUSIC_DIR);
+    // Load per-song metadata cache — keyed by relative path, valid while size+mtime match.
+    // Songs whose size/mtime are unchanged skip ffprobe entirely.
+    $songCache = [];
+    if (file_exists(SONG_CACHE_FILE)) {
+        $raw = @json_decode(file_get_contents(SONG_CACHE_FILE), true);
+        if (is_array($raw)) $songCache = $raw; // already keyed by relpath
+    }
+    $songs = doScanDir(MUSIC_DIR, '', $songCache);
+    // Persist only entries for files that still exist (prunes deleted songs)
+    $newCache = [];
+    foreach ($songs as $s) { $newCache[$s['path']] = $s; }
+    @file_put_contents(SONG_CACHE_FILE, json_encode($newCache, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     usort($songs, function($a, $b) {
         return strcasecmp($a['artist'] . $a['title'], $b['artist'] . $b['title']);
     });
@@ -1070,7 +1082,7 @@ function handleLibrary() {
     header('ETag: "' . md5($json) . '"');
     echo $json;
 }
-function doScanDir($dir, $base = '') {
+function doScanDir($dir, $base = '', &$songCache = []) {
     $exts  = ['mp3','m4a','aac','flac','ogg','wav','opus','aiff','wma'];
     $songs = [];
     $items = @scandir($dir);
@@ -1080,12 +1092,24 @@ function doScanDir($dir, $base = '') {
         $full = $dir . '/' . $item;
         $rel  = $base ? $base . '/' . $item : $item;
         if (is_dir($full)) {
-            $songs = array_merge($songs, doScanDir($full, $rel));
+            $songs = array_merge($songs, doScanDir($full, $rel, $songCache));
             continue;
         }
         $ext = strtolower(pathinfo($item, PATHINFO_EXTENSION));
         if (!in_array($ext, $exts)) continue;
-        $songs[] = extractMeta($full, $rel);
+        $size  = (int)@filesize($full);
+        $mtime = (int)@filemtime($full);
+        // Cache hit: file unchanged — skip ffprobe entirely
+        if (isset($songCache[$rel]) &&
+            $songCache[$rel]['size']     === $size &&
+            $songCache[$rel]['modified'] === $mtime) {
+            $songs[] = $songCache[$rel];
+            continue;
+        }
+        // Cache miss or file changed — run full extraction and update cache
+        $meta = extractMeta($full, $rel);
+        $songCache[$rel] = $meta;
+        $songs[] = $meta;
     }
     return $songs;
 }
