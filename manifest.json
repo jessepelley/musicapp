@@ -3,6 +3,7 @@
   "short_name": "Music",
   "description": "Jesse's Music Library",
   "start_url": "https://music.jjjp.ca/",
+  "scope": "https://music.jjjp.ca/",
   "display": "standalone",
   "background_color": "#0d0d0f",
   "theme_color": "#0d0d0f",
