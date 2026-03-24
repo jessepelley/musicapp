@@ -2648,9 +2648,9 @@
             <circle cx="6" cy="18" r="3" />
             <circle cx="18" cy="16" r="3" />
           </svg>
-          <h2 id="empty-h">Connect to your NAS</h2>
-          <p id="empty-p">Configure your NAS URL and API key in Settings, then hit Sync.</p>
-          <button class="tb accent" id="empty-set" style="margin-top:10px">Open Settings</button>
+          <h2 id="empty-h">Sign in to get started</h2>
+          <p id="empty-p">Sign in with your account to access your music library.</p>
+          <button class="tb accent" id="empty-set" style="margin-top:10px">Sign In</button>
           <button class="tb" id="empty-browse" style="margin-top:6px;display:none" onclick="openCatalog(sq)">Browse Catalogue</button>
         </div>
       </div>
@@ -2964,9 +2964,22 @@
   <div id="sp">
     <div id="sb">
       <h3>Settings <span id="sclose">×</span></h3>
-      <div class="sf"><label>NAS URL</label><input type="url" id="cfg-url" placeholder="https://music.yourdomain.com">
+      <div id="auth-section" style="margin-bottom:14px">
+        <div id="auth-signed-out" style="display:none;text-align:center">
+          <p style="font-size:12px;color:var(--text3);margin-bottom:10px">Sign in to access your music library.</p>
+          <button id="auth-login" class="tb accent" style="width:100%;padding:8px;font-size:13px;border-radius:6px">Sign In</button>
+        </div>
+        <div id="auth-signed-in" style="display:none">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <img id="auth-avatar" src="" alt="" style="width:32px;height:32px;border-radius:50%;display:none">
+            <div style="flex:1;min-width:0">
+              <div id="auth-name" style="font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+              <div id="auth-status" style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">Authenticated</div>
+            </div>
+          </div>
+          <button id="auth-logout" class="tb" style="width:100%;padding:6px;font-size:12px;border-radius:6px;color:var(--text3);border-color:var(--border2)">Sign Out</button>
+        </div>
       </div>
-      <div class="sf"><label>API Key</label><input type="password" id="cfg-key" placeholder="your-secret-key"></div>
       <div class="stoggle-row">
         <div class="stoggle-label">
           <strong>Dark Mode</strong>
@@ -2977,9 +2990,6 @@
           <span class="stoggle-track"></span>
         </label>
       </div>
-      <button id="ssave">Save &amp; Connect</button>
-      <p class="snote">Upload <code>api.php</code> and <code>index.html</code> to the same web folder on your Synology.
-        Set <code>MUSIC_DIR</code> and <code>API_KEY</code> at the top of <code>api.php</code>.</p>
     </div>
   </div>
 
@@ -2987,15 +2997,25 @@
   <div id="toast"></div>
   <audio id="aud" preload="auto"></audio>
 
+  <script src="auth.js"></script>
   <script>
     'use strict';
     // app title in brand
     document.title = 'Music';
+
+    // ── AUTH CALLBACK ────────────────────────────────────────────────────────────
+    // Capture ?token= from URL if returning from jjjp.ca/auth
+    auth.handleCallback();
+
     // ── CONFIG ────────────────────────────────────────────────────────────────────
     const CFGK = 'jb-cfg';
     function lcfg() { try { return JSON.parse(localStorage.getItem(CFGK)) || {}; } catch { return {}; } }
     function scfg(c) { localStorage.setItem(CFGK, JSON.stringify(c)); }
     let cfg = lcfg();
+
+    // Hardcode NAS URL and bridge auth token into cfg
+    cfg.url = 'https://jjjp.ca/music';
+    if (auth.isAuthenticated()) cfg.apiKey = auth.getToken();
 
     // ── THEME ─────────────────────────────────────────────────────────────────────
     let theme = localStorage.getItem('jb-theme') || 'dark';
@@ -3120,7 +3140,7 @@
       const ctrl = new AbortController();
       const tid = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
-        const r = await fetch(aurl(action, p), { headers: { 'X-API-Key': cfg.apiKey || '' }, signal: ctrl.signal });
+        const r = await fetch(aurl(action, p), { headers: { 'X-API-Key': auth.getToken() || cfg.apiKey || '' }, signal: ctrl.signal });
         if (!r.ok) throw new Error(`${action}: ${r.status}`);
         return r.json();
       } finally { clearTimeout(tid); }
@@ -3128,7 +3148,7 @@
     async function apost(action, body) {
       const r = await fetch(apiBase() + '/api.php?action=' + action, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': cfg.apiKey || '' },
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': auth.getToken() || cfg.apiKey || '' },
         body: JSON.stringify(body)
       });
       if (!r.ok) throw new Error(`${action}: ${r.status}`);
@@ -3148,7 +3168,7 @@
     // Triggered automatically when: view==='albums' AND not shuffling AND album is complete.
     // Falls back to normal per-track streaming on any error.
     async function albumStreamUrl(trackPaths, totalSec = 0) {
-      if (!cfg.url || !cfg.apiKey || !online) return null;
+      if (!cfg.url || !auth.isAuthenticated() || !online) return null;
       try {
         const d = await apost('sign_album', { paths: trackPaths });
         if (!d.token) return null;
@@ -3163,7 +3183,7 @@
 
     // ── SYNC ──────────────────────────────────────────────────────────────────────
     async function syncLib() {
-      if (!cfg.url || !cfg.apiKey) { showSet(); return; }
+      if (!cfg.url || !auth.isAuthenticated()) { if (!auth.isAuthenticated()) auth.login(); return; }
       setSt('loading', 'Syncing\u2026');
       console.log('[Sync] Starting library sync\u2026');
       const t0 = Date.now();
@@ -3199,7 +3219,7 @@
     // Fast pre-flight check: pure filesystem walk on server (no ffprobe). If files changed,
     // the server invalidates its cache and we fall through to a full syncLib().
     async function quickCheckLib() {
-      if (!cfg.url || !cfg.apiKey) { showSet(); return; }
+      if (!cfg.url || !auth.isAuthenticated()) { return; }
       try {
         setSt('loading', 'Checking…');
         const d = await afetch('library_check', {});
@@ -5112,7 +5132,7 @@ function setMS(song) {
       if (!s.length) {
         list.innerHTML = '';
         const EMPTY_STATES = {
-          'no-lib-cfg':     ["Connect to your NAS", "Configure NAS URL and API key in Settings, then hit Sync."],
+          'no-lib-cfg':     ["Sign in to get started", "Sign in with your account to access your music library."],
           'no-lib':         ["Your library is empty", "Use Browse Catalog to find and add music to your library."],
           'empty-lib':      ["Your library is empty", "Tap Browse Catalogue to find and add music."],
           'starred':        ["No loved songs", "Tap the heart on any song to mark it as loved."],
@@ -5127,7 +5147,7 @@ function setMS(song) {
           'default':        ["No results", "Nothing matched your search."],
         };
         const hasLib = Object.keys(userLib).length > 0;
-        const ekey = !songs.length && !cfg.url ? 'no-lib-cfg'
+        const ekey = !songs.length && !auth.isAuthenticated() ? 'no-lib-cfg'
           : !songs.length ? 'no-lib'
           : !hasLib ? 'empty-lib'
           : sq ? 'no-results'
@@ -6682,15 +6702,36 @@ function setMS(song) {
 
     // ── SETTINGS ──────────────────────────────────────────────────────────────────
     document.getElementById('cfg-theme').addEventListener('change', e => applyTheme(e.target.checked ? 'dark' : 'light'));
-    function showSet() { document.getElementById('cfg-url').value = cfg.url || ''; document.getElementById('cfg-key').value = cfg.apiKey || ''; document.getElementById('cfg-theme').checked = theme === 'dark'; document.getElementById('sp').classList.add('show'); }
+    function updateAuthUI() {
+      const signedIn = auth.isAuthenticated();
+      document.getElementById('auth-signed-out').style.display = signedIn ? 'none' : '';
+      document.getElementById('auth-signed-in').style.display = signedIn ? '' : 'none';
+      if (signedIn) {
+        auth.whoami().then(user => {
+          if (!user) return;
+          document.getElementById('auth-name').textContent = user.given_name || user.name || 'User';
+          const avatar = document.getElementById('auth-avatar');
+          if (user.picture) { avatar.src = user.picture; avatar.style.display = ''; }
+          else { avatar.style.display = 'none'; }
+        });
+      }
+    }
+    function showSet() { document.getElementById('cfg-theme').checked = theme === 'dark'; updateAuthUI(); document.getElementById('sp').classList.add('show'); }
     document.getElementById('setbtn').addEventListener('click', showSet);
-    document.getElementById('empty-set').addEventListener('click', showSet);
+    document.getElementById('empty-set').addEventListener('click', () => { if (!auth.isAuthenticated()) { auth.login(); } else { showSet(); } });
     document.getElementById('sclose').addEventListener('click', () => document.getElementById('sp').classList.remove('show'));
-    document.getElementById('ssave').addEventListener('click', () => {
-      cfg.url = (document.getElementById('cfg-url').value.trim() || '').replace(/\/$/, '');
-      cfg.apiKey = document.getElementById('cfg-key').value.trim();
-      scfg(cfg); document.getElementById('sp').classList.remove('show'); syncLib();
-      swSyncData(); // push updated config to SW
+    document.getElementById('auth-login').addEventListener('click', () => auth.login());
+    document.getElementById('auth-logout').addEventListener('click', () => {
+      auth.logout();
+      cfg.apiKey = '';
+      scfg(cfg);
+      updateAuthUI();
+      document.getElementById('sp').classList.remove('show');
+      songs = [];
+      try { localStorage.removeItem('jb-manifest'); } catch {}
+      rebuildQ(); renderList(); renderSB();
+      swSyncData();
+      setSt('', 'Signed out');
     });
 
     // ── TOAST ─────────────────────────────────────────────────────────────────────
@@ -6754,7 +6795,7 @@ function setMS(song) {
       if (!navigator.serviceWorker?.controller) return;
       navigator.serviceWorker.controller.postMessage({
         type: 'sync-data',
-        cfg:    { url: cfg.url || '', apiKey: cfg.apiKey || '' },
+        cfg:    { url: cfg.url || '', apiKey: auth.getToken() || cfg.apiKey || '' },
         misses: getSearchMisses(),
       });
     }
@@ -6827,13 +6868,13 @@ function setMS(song) {
       }
       document.getElementById('vf').style.width = (aud.volume * 100) + '%';
       document.getElementById('np-panel-vf').style.width = (aud.volume * 100) + '%';
-      if (cfg.url && cfg.apiKey && navigator.onLine) {
+      if (cfg.url && auth.isAuthenticated() && navigator.onLine) {
         setSt('loading', 'Connecting…');
         console.log(`[Init] Online — checking for changes at ${cfg.url}`);
         quickCheckLib();
-      } else if (!cfg.url) {
-        setSt('err', 'Not configured');
-        console.log('[Init] No NAS URL configured — open Settings to set up');
+      } else if (!auth.isAuthenticated()) {
+        setSt('', 'Not signed in');
+        console.log('[Init] Not authenticated — sign in to access library');
       } else {
         console.log('[Init] Offline — using cached data only');
       }
