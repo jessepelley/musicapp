@@ -68,13 +68,27 @@ const auth = {
     /**
      * Redirect user to jjjp.ca/auth to authenticate.
      * After login they'll be redirected back here with ?token=.
+     *
+     * In standalone PWA mode (Safari "Add to Dock"), WebAuthn passkeys
+     * don't work because the PWA has a separate credential context.
+     * Open the auth URL in Safari instead so passkeys work normally.
+     * The redirect back to music.jjjp.ca will re-open the PWA.
      */
     login() {
         const redirectUrl = window.location.origin + window.location.pathname;
         const authUrl = AUTH_CONFIG.authUrl
             + '?app=' + encodeURIComponent(AUTH_CONFIG.app)
             + '&redirect=' + encodeURIComponent(redirectUrl);
-        window.location.href = authUrl;
+
+        const isStandalone = window.navigator.standalone === true
+            || window.matchMedia('(display-mode: standalone)').matches;
+
+        if (isStandalone) {
+            // Open in Safari so passkeys work; redirect returns to PWA
+            window.open(authUrl, '_blank');
+        } else {
+            window.location.href = authUrl;
+        }
     },
 
     /**
