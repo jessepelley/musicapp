@@ -2642,7 +2642,7 @@
           <h2 id="empty-h">Connect to your NAS</h2>
           <p id="empty-p">Configure your NAS URL and API key in Settings, then hit Sync.</p>
           <button class="tb accent" id="empty-set" style="margin-top:10px">Open Settings</button>
-          <button class="tb" id="empty-browse" style="margin-top:6px;display:none" onclick="openCatalog()">Browse Catalogue</button>
+          <button class="tb" id="empty-browse" style="margin-top:6px;display:none" onclick="openCatalog(sq)">Browse Catalogue</button>
         </div>
       </div>
     </div>
@@ -4010,7 +4010,7 @@
       if (frag2.childNodes.length) container.appendChild(frag2);
     }
 
-    document.getElementById('catalog-search-trigger').addEventListener('click', () => { openCatalog(); closeSidebar(); });
+    document.getElementById('catalog-search-trigger').addEventListener('click', () => { openCatalog(sq); closeSidebar(); });
     document.getElementById('catalog-cancel').addEventListener('click', closeCatalog);
     document.getElementById('catalog-back-btn').addEventListener('click', () => {
       catalogArtistView = null;
@@ -6533,9 +6533,9 @@ function setMS(song) {
     // cache-view-btn removed — now in context menu as ctx-cache-view
     document.getElementById('new-pl').addEventListener('click', () => openModal('New Playlist', 'My Playlist', createPl));
     document.getElementById('syncbtn').addEventListener('click', syncLib);
-    // On mobile the sync-status pill is shown at the left on the home screen — tapping opens catalog
+    // Tapping the sync-status pill opens the catalog (mobile: home screen; desktop: anywhere)
     document.getElementById('sync-status').addEventListener('click', () => {
-      if (window.innerWidth <= 700) openCatalog();
+      openCatalog();
     });
 
     // ── MODAL ─────────────────────────────────────────────────────────────────────
