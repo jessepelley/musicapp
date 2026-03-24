@@ -1780,6 +1780,12 @@
         bottom: calc(var(--ph-mob) + max(0px, env(safe-area-inset-bottom)) + 10px);
       }
 
+      /* Catalog overlay on mobile: cover toolbar but leave mob-player visible */
+      #catalog-overlay {
+        top: 0;
+        bottom: calc(var(--ph-mob) + max(0px, env(safe-area-inset-bottom)));
+      }
+
       /* Full-screen now playing panel */
       #nowplaying-panel {
         position: fixed;
@@ -2308,7 +2314,10 @@
     #catalog-overlay {
       display: none;
       position: fixed;
-      inset: 0;
+      top: var(--th);   /* sit below toolbar so now-playing is always visible */
+      right: 0;
+      bottom: var(--ph);
+      left: 0;
       background: var(--bg);
       z-index: 300;
       flex-direction: column;
@@ -3759,10 +3768,11 @@
                 ${allInLib ? CHECK_SVG : '+'}
               </button>`;
 
-            // Click row → play song / drill into artist songs / filter to album
+            // Click row: catalog songs only play if already in library (user adds via + first).
+            // Artist/album rows drill within the catalog as before.
             row.querySelector('.cr-info').addEventListener('click', () => {
               if (mode === 'song') {
-                closeCatalog(); playSong(s.id, true, true);
+                if (inLib(s.id)) playSong(s.id, true, true); // play; now-playing bar updates without closing catalog
               } else if (mode === 'artist') {
                 showCatalogArtist(s.artist);
               } else {
@@ -3812,6 +3822,109 @@
         }
 
         addRows(0, PAGE);
+      }
+
+      // ── LIBRARY RESULTS (search mode only) ───────────────────────────────────
+      if (!browsing) {
+        const libAll     = libSongs().filter(s => !s._missing);
+        const libIdSet   = new Set(libAll.map(s => String(s.id)));
+        const libFiltered = libAll.filter(s =>
+          (s.title  || '').toLowerCase().includes(lq) ||
+          (s.artist || '').toLowerCase().includes(lq) ||
+          (s.album  || '').toLowerCase().includes(lq) ||
+          (s.album_artist || '').toLowerCase().includes(lq)
+        );
+        const libSongMatches = libFiltered.filter(s => (s.title || '').toLowerCase().includes(lq));
+        const libArtistMap   = new Map();
+        const libAlbumMap    = new Map();
+        const libCompMap     = new Map();
+        libFiltered.forEach(s => {
+          const art = s.artist || '';
+          if (art && art.toLowerCase().includes(lq) && !libArtistMap.has(art.toLowerCase()))
+            libArtistMap.set(art.toLowerCase(), s);
+          const alb = s.album || '';
+          if (!alb) return;
+          const key = alb.toLowerCase() + '|||' + (s.album_artist || s.artist || '').toLowerCase();
+          if (s.section === 'compilations') {
+            if (!libCompMap.has(key)) libCompMap.set(key, s);
+          } else if (alb.toLowerCase().includes(lq) || (s.album_artist || s.artist || '').toLowerCase().includes(lq)) {
+            if (!libAlbumMap.has(key)) libAlbumMap.set(key, s);
+          }
+        });
+
+        function mkLibSection(label, items, mode) {
+          if (!items.length) return;
+          const lbl = document.createElement('div');
+          lbl.className = 'cr-section-label';
+          lbl.textContent = label;
+          frag.appendChild(lbl);
+          items.forEach(s => {
+            const row = document.createElement('div');
+            row.className = 'cr-row';
+            let titleText, subText;
+            if (mode === 'artist') {
+              titleText = s.artist;
+              const n = libAll.filter(x => _groupArtist(x) === _groupArtist(s)).length;
+              subText = `${n} song${n !== 1 ? 's' : ''} in library`;
+            } else if (mode === 'album' || mode === 'compilation') {
+              titleText = s.album;
+              subText = s.album_artist || s.artist;
+            } else {
+              titleText = s.title;
+              subText = [s.artist, s.album].filter(Boolean).join(' — ');
+            }
+            row.innerHTML = `
+              <div class="cr-info">
+                <div class="cr-title">${esc(titleText)}</div>
+                <div class="cr-sub">${esc(subText)}</div>
+              </div>
+              <span style="font-size:10px;color:var(--text3);padding-right:6px;flex-shrink:0;white-space:nowrap">In Library</span>`;
+            row.addEventListener('click', () => {
+              closeCatalog();
+              mobileNavMode = false;
+              if (mode === 'song') {
+                view = 'all'; mobileAlbumDrilldown = null; mobileArtistDrilldown = null;
+                selId = s.id; renderList(); renderSB();
+                setTimeout(() => {
+                  const r = document.querySelector(`.sr[data-id="${CSS.escape(String(s.id))}"]`);
+                  if (r) r.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }, 50);
+              } else if (mode === 'artist') {
+                view = 'artists'; mobileAlbumDrilldown = null;
+                mobileArtistDrilldown = { displayName: s.artist, key: _groupArtist(s) };
+                renderList(); renderSB();
+              } else if (mode === 'album') {
+                view = 'albums'; mobileArtistDrilldown = null;
+                mobileAlbumDrilldown = { album: (s.album || '').toLowerCase().trim(), artistKey: _groupArtist(s), label: s.album || 'Unknown' };
+                renderList(); renderSB();
+              } else {
+                view = 'compilations'; mobileArtistDrilldown = null;
+                mobileAlbumDrilldown = { album: (s.album || '').toLowerCase().trim(), artistKey: _groupArtist(s), label: s.album || 'Unknown' };
+                renderList(); renderSB();
+              }
+            });
+            frag.appendChild(row);
+          });
+        }
+
+        mkLibSection('Songs',        libSongMatches,              'song');
+        mkLibSection('Artists',      [...libArtistMap.values()],  'artist');
+        mkLibSection('Albums',       [...libAlbumMap.values()],   'album');
+        mkLibSection('Compilations', [...libCompMap.values()],    'compilation');
+
+        // Filter catalog song matches to exclude items already shown in library
+        titleMatches = titleMatches.filter(s => !libIdSet.has(String(s.id)));
+
+        // Divider before catalog results (only if there are library results AND catalog results)
+        const hasLibResults = libSongMatches.length || libArtistMap.size || libAlbumMap.size || libCompMap.size;
+        const hasCatalogResults = titleMatches.length || artistRows.length || albumRows.length;
+        if (hasLibResults && hasCatalogResults) {
+          const div = document.createElement('div');
+          div.className = 'cr-section-label';
+          div.textContent = 'From Catalog';
+          div.style.cssText = 'border-top:1px solid var(--border);margin-top:4px;padding-top:12px';
+          frag.appendChild(div);
+        }
       }
 
       mkSection('Songs', titleMatches, 'song');
@@ -6490,8 +6603,13 @@ function setMS(song) {
     }
     document.getElementById('mob-search-trigger').addEventListener('click', e => {
       e.stopPropagation();
-      // Both mobile and desktop use the inline search to filter current view
-      openMobSearch();
+      if (window.innerWidth <= 700) {
+        // Mobile: open universal search (catalog overlay). openCatalog calls focus()
+        // synchronously within the gesture so iOS Safari raises the keyboard immediately.
+        openCatalog(sq);
+      } else {
+        openMobSearch();
+      }
     });
     document.getElementById('mob-search-input').addEventListener('input', e => {
       sq = e.target.value;
