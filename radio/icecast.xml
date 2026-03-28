@@ -1,0 +1,72 @@
+<!--
+  Icecast2 Configuration — Shuffle Radio
+
+  Place this file at /etc/icecast2/icecast.xml (or wherever your Icecast expects it).
+  Adjust <hostname>, passwords, and paths for your environment.
+
+  Usage:
+    icecast2 -c /path/to/icecast.xml
+-->
+<icecast>
+
+    <!-- ─── Hostname & Ports ───────────────────────────────────────────── -->
+    <hostname>radio.jjjp.ca</hostname>
+
+    <listen-socket>
+        <port>8000</port>
+        <bind-address>0.0.0.0</bind-address>
+    </listen-socket>
+
+    <!-- ─── Authentication ─────────────────────────────────────────────── -->
+    <authentication>
+        <!-- Password Liquidsoap uses to connect as a source -->
+        <source-password>changeme_source_password</source-password>
+
+        <!-- Password for the /admin pages -->
+        <admin-user>admin</admin-user>
+        <admin-password>changeme_admin_password</admin-password>
+
+        <!-- Relay password (not used but required by config) -->
+        <relay-password>changeme_relay_password</relay-password>
+    </authentication>
+
+    <!-- ─── Limits ─────────────────────────────────────────────────────── -->
+    <limits>
+        <!-- Max simultaneous listeners across all mountpoints -->
+        <clients>10</clients>
+
+        <!-- Max source connections (just Liquidsoap) -->
+        <sources>2</sources>
+
+        <!-- Burst size: bytes sent immediately on connect for fast start -->
+        <burst-size>131072</burst-size>
+
+        <!-- Idle timeout for sources (seconds). 0 = never timeout. -->
+        <source-timeout>60</source-timeout>
+    </limits>
+
+    <!-- ─── Paths ──────────────────────────────────────────────────────── -->
+    <paths>
+        <basedir>/usr/share/icecast2</basedir>
+        <logdir>/var/log/icecast2</logdir>
+        <webroot>/usr/share/icecast2/web</webroot>
+        <adminroot>/usr/share/icecast2/admin</adminroot>
+
+        <!-- Aliases so / serves a simple status page -->
+        <alias source="/" destination="/status.xsl"/>
+    </paths>
+
+    <!-- ─── Logging ────────────────────────────────────────────────────── -->
+    <logging>
+        <accesslog>access.log</accesslog>
+        <errorlog>error.log</errorlog>
+        <loglevel>3</loglevel>  <!-- 1=error, 2=warn, 3=info, 4=debug -->
+        <logsize>10000</logsize> <!-- KB before rotation -->
+    </logging>
+
+    <!-- ─── Security ───────────────────────────────────────────────────── -->
+    <security>
+        <chroot>0</chroot>
+    </security>
+
+</icecast>

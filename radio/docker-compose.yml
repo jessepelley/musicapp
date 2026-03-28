@@ -1,0 +1,37 @@
+version: "3.8"
+
+# Shuffle Radio — Docker Compose
+#
+# Usage:
+#   docker-compose up -d        # Start
+#   docker-compose down          # Stop
+#   docker-compose logs -f       # View logs
+#
+# Prerequisites:
+#   1. Edit icecast.xml and radio.liq — change all "changeme_*" passwords
+#   2. In radio.liq, set music_dir = "/music" and icecast_host = "icecast"
+
+services:
+  icecast:
+    image: libretime/icecast:2.4.4
+    container_name: radio-icecast
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./icecast.xml:/etc/icecast2/icecast.xml:ro
+      - icecast-logs:/var/log/icecast2
+    restart: unless-stopped
+
+  liquidsoap:
+    image: savonet/liquidsoap:v2.3.1
+    container_name: radio-liquidsoap
+    depends_on:
+      - icecast
+    volumes:
+      - ./radio.liq:/radio.liq:ro
+      - /volume1/music:/music:ro
+    command: liquidsoap /radio.liq
+    restart: unless-stopped
+
+volumes:
+  icecast-logs:
