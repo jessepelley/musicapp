@@ -1248,7 +1248,17 @@ function doScanDir($dir, $base = '', &$songCache = []) {
         if (isset($songCache[$rel]) &&
             $songCache[$rel]['size']     === $size &&
             $songCache[$rel]['modified'] === $mtime) {
-            $songs[] = $songCache[$rel];
+            $cached = $songCache[$rel];
+            // Back-fill embedded art for cache entries written before that
+            // field existed. Per-folder memo + on-disk .miss marker keeps
+            // ffmpeg from running more than once per album.
+            if (empty($cached['hasArt']) && !isset($cached['embeddedArt'])) {
+                $embedded = extractEmbeddedArt($full, $rel);
+                if ($embedded) { $cached['hasArt'] = true; $cached['embeddedArt'] = $embedded; }
+                else           { $cached['embeddedArt'] = ''; }
+                $songCache[$rel] = $cached;
+            }
+            $songs[] = $cached;
             continue;
         }
         // Cache miss or file changed — run full extraction and update cache
@@ -1267,6 +1277,7 @@ function extractMeta($path, $rel) {
     $meta['modified'] = (int)@filemtime($path);
     $meta['hasArt']   = false;
     $meta['artFile']  = '';
+    $meta['embeddedArt'] = '';
     $dir = dirname($path);
     foreach (['cover.jpg','cover.png','folder.jpg','folder.png','artwork.jpg'] as $f) {
         if (file_exists($dir . '/' . $f)) {
@@ -1275,7 +1286,56 @@ function extractMeta($path, $rel) {
             break;
         }
     }
+    // Fall back to embedded artwork (one extraction per album folder, cached on disk).
+    if (!$meta['hasArt']) {
+        $embedded = extractEmbeddedArt($path, $rel);
+        if ($embedded) {
+            $meta['hasArt']      = true;
+            $meta['embeddedArt'] = $embedded;
+        }
+    }
     return $meta;
+}
+
+// Extract the first embedded cover image from $path into ART_CACHE_DIR.
+// Keyed by album folder (so multi-track albums extract once). Returns the
+// basename (e.g. "embedded_<hash>.jpg") for URL construction, or '' if none.
+// Per-request memoization avoids hammering ffmpeg for every track in a folder
+// that has no embedded art either.
+function extractEmbeddedArt(string $path, string $rel): string {
+    static $tried = []; // folderHash => result string ('' for miss)
+    $folder     = dirname($rel);
+    $folderHash = substr(md5($folder), 0, 16);
+    $out        = 'embedded_' . $folderHash . '.jpg';
+    $outPath    = ART_CACHE_DIR . '/' . $out;
+    $missPath   = ART_CACHE_DIR . '/' . 'embedded_' . $folderHash . '.miss';
+
+    if (array_key_exists($folderHash, $tried)) return $tried[$folderHash];
+    if (file_exists($outPath)) { $tried[$folderHash] = $out; return $out; }
+    if (file_exists($missPath)) { $tried[$folderHash] = ''; return ''; }
+
+    if (!is_dir(ART_CACHE_DIR)) @mkdir(ART_CACHE_DIR, 0775, true);
+
+    $ffmpeg = findFfmpeg();
+    if (!$ffmpeg) { $tried[$folderHash] = ''; return ''; }
+
+    // -map 0:v? grabs all video streams (cover art); -frames:v 1 picks one; -an
+    // drops audio; the '?' makes the map optional so ffmpeg won't error when
+    // there is no embedded picture stream.
+    $cmd = escapeshellarg($ffmpeg) . ' -y -i ' . escapeshellarg($path)
+         . ' -map 0:v? -frames:v 1 -an ' . escapeshellarg($outPath)
+         . ' 2>/dev/null';
+    @shell_exec($cmd);
+
+    if (file_exists($outPath) && filesize($outPath) > 500) {
+        $tried[$folderHash] = $out;
+        return $out;
+    }
+    // Record a miss so we don't retry every scan
+    @file_put_contents($missPath, (string)time());
+    if (file_exists($outPath)) @unlink($outPath); // clean up empty/garbage output
+    $tried[$folderHash] = '';
+    return '';
 }
 function tryFFprobe($path) {
     static $fp = null;

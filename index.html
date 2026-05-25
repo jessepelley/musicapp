@@ -950,6 +950,81 @@
       background: var(--accent);
     }
 
+    .mbtn.danger {
+      color: var(--danger, #e5143a);
+    }
+
+    .mbtn.danger:hover {
+      background: var(--bg4);
+    }
+
+    /* ═══════════════════════════════════════════════════
+   META EDIT MODAL
+═══════════════════════════════════════════════════ */
+    #meta-mo {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .55);
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #meta-mo.show { display: flex; }
+    #meta-mb {
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 20px 22px;
+      width: 360px;
+      max-width: calc(100vw - 28px);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      box-shadow: 0 20px 60px var(--shadow);
+    }
+    #meta-mb h3 { font-size: 14px; margin-bottom: 4px; }
+    #meta-mb-sub {
+      font-size: 11px;
+      color: var(--text3);
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+    #meta-mb .meta-row { margin-bottom: 10px; }
+    #meta-mb .meta-row label {
+      display: block;
+      font-size: 10.5px;
+      letter-spacing: .5px;
+      color: var(--text3);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      font-family: 'DM Mono', monospace;
+    }
+    #meta-mb .meta-row input {
+      width: 100%;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      padding: 7px 9px;
+      outline: none;
+    }
+    #meta-mb .meta-row input:focus { border-color: var(--accent); }
+    #meta-mb .meta-row.two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    #meta-mbtns {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 14px;
+    }
+
     /* ═══════════════════════════════════════════════════
    SETTINGS PANEL
 ═══════════════════════════════════════════════════ */
@@ -1588,6 +1663,35 @@
         font-size: 9.5px;
         color: var(--text3);
         font-family: 'DM Mono', monospace;
+      }
+
+      .mob-album-fmt {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        background: rgba(0, 0, 0, .72);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: .5px;
+        padding: 2px 5px;
+        border-radius: 4px;
+        font-family: 'DM Mono', monospace;
+        pointer-events: none;
+      }
+
+      .fmt-chip {
+        display: inline-block;
+        background: var(--bg3);
+        color: var(--text2);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: .4px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-family: 'DM Mono', monospace;
+        margin-left: 6px;
+        vertical-align: middle;
       }
 
       /* ── MOBILE ARTIST ROWS ───────────────────────────────────────────────────── */
@@ -2938,6 +3042,8 @@
     <div class="ci" id="ctx-goto-artist" style="display:none">Go to Artist</div>
     <div class="ci" id="ctx-goto-album" style="display:none">Go to Album</div>
     <div class="cs" id="ctx-goto-sep" style="display:none"></div>
+    <div class="ci" id="ctx-edit-meta">✎ Edit Metadata</div>
+    <div class="cs"></div>
     <div class="ci" id="ctx-history" style="font-size:11px;color:var(--text3);cursor:default;pointer-events:none">Never
       played</div>
     <div class="cs"></div>
@@ -2956,6 +3062,32 @@
       <div id="mbtns">
         <button class="mbtn" id="mcancel">Cancel</button>
         <button class="mbtn ok" id="mok">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- META EDIT MODAL -->
+  <div id="meta-mo">
+    <div id="meta-mb">
+      <h3>Edit Metadata</h3>
+      <div id="meta-mb-sub">Changes apply to your library only — original files are not modified.</div>
+      <div class="meta-row"><label>Title</label><input type="text" id="meta-title" maxlength="300"></div>
+      <div class="meta-row"><label>Artist</label><input type="text" id="meta-artist" maxlength="200"></div>
+      <div class="meta-row"><label>Album Artist</label><input type="text" id="meta-album-artist" maxlength="200"></div>
+      <div class="meta-row"><label>Album</label><input type="text" id="meta-album" maxlength="200"></div>
+      <div class="meta-row two-col">
+        <div><label>Year</label><input type="number" id="meta-year" min="0" max="9999"></div>
+        <div><label>Genre</label><input type="text" id="meta-genre" maxlength="100"></div>
+      </div>
+      <div class="meta-row two-col">
+        <div><label>Track #</label><input type="number" id="meta-track" min="0" max="999"></div>
+        <div><label>Disc #</label><input type="number" id="meta-disc" min="0" max="99"></div>
+      </div>
+      <div id="meta-mbtns">
+        <button class="mbtn danger" id="meta-reset" title="Clear all overrides for this song">Reset</button>
+        <span style="flex:1"></span>
+        <button class="mbtn" id="meta-cancel">Cancel</button>
+        <button class="mbtn ok" id="meta-save">Save</button>
       </div>
     </div>
   </div>
@@ -3196,6 +3328,7 @@
         setSt('ok', `${songs.length} songs`);
         toast(`Synced \u2014 ${songs.length} songs`);
         await pullMeta();
+        applyMetaOverrides();
         await pullUserLib();
         await pullPlaylists();
         stampNewSongs();
@@ -3262,16 +3395,55 @@
     }
     async function pushMeta(patch) {
       // Merge patch into local meta
+      const affected = [];
       for (const [id, m] of Object.entries(patch)) {
         if (!songMeta[id]) songMeta[id] = {};
         Object.assign(songMeta[id], m);
+        affected.push(String(id));
       }
+      // Re-apply tag overrides for any songs touched (so the in-memory songs
+      // array reflects edits immediately without a full re-render of overrides)
+      applyMetaOverrides(affected);
       try { localStorage.setItem('jb-meta', JSON.stringify(songMeta)); } catch { }
       if (!cfg.url || !cfg.apiKey || !online) return;
       try { await apost('save_meta', { meta: patch }); } catch (e) { console.warn('meta push fail', e); }
     }
 
     function getMeta(id) { return songMeta[String(id)] || {}; }
+
+    // Per-user metadata overrides. Fields the user can override via the
+    // edit-metadata sheet. Values stored under songMeta[id] win over the
+    // catalog values from the server scan; originals are preserved on
+    // each song as `._orig` so a "Reset" action can roll them back.
+    const META_OVERRIDE_FIELDS = ['title','artist','album_artist','album','year','genre','track','disc'];
+    function applyMetaOverrides(ids) {
+      const target = ids ? new Set(ids.map(String)) : null;
+      for (const s of songs) {
+        if (target && !target.has(String(s.id))) continue;
+        const m = songMeta[String(s.id)];
+        if (!m) {
+          // Roll back any prior overrides if the user has cleared them
+          if (s._orig) {
+            for (const k of Object.keys(s._orig)) s[k] = s._orig[k];
+            delete s._orig;
+          }
+          continue;
+        }
+        if (!s._orig) s._orig = {};
+        for (const k of META_OVERRIDE_FIELDS) {
+          const v = m[k];
+          const hasOverride = v !== undefined && v !== null && v !== '';
+          if (hasOverride) {
+            if (!(k in s._orig)) s._orig[k] = s[k];
+            s[k] = (k === 'year' || k === 'track' || k === 'disc') ? Number(v) || 0 : String(v);
+          } else if (k in s._orig) {
+            s[k] = s._orig[k];
+            delete s._orig[k];
+          }
+        }
+        if (s._orig && Object.keys(s._orig).length === 0) delete s._orig;
+      }
+    }
 
     // ── SEARCH MISS LOG ───────────────────────────────────────────────────────────
     function getSearchMisses() {
@@ -3468,6 +3640,38 @@
     function isStarred(id) { return !!getMeta(id).starred; }
     function playCount(id) { return getMeta(id).playCount || 0; }
     function lastPlayed(id) { return getMeta(id).lastPlayed || 0; }
+    // Normalize a song's file format for grouping/display. Prefer the audio
+    // codec (server-extracted) so .m4a splits into AAC vs ALAC. Falls back to
+    // the file extension when the codec is unknown.
+    function _fmtKey(s) {
+      const c = (s && s.codec || '').toLowerCase();
+      if (c) return c;
+      return (s && s.ext || '').toLowerCase();
+    }
+    function _fmtLabel(s) {
+      const k = _fmtKey(s);
+      if (!k) return '';
+      if (k === 'aac')  return 'AAC';
+      if (k === 'alac') return 'ALAC';
+      if (k === 'flac') return 'FLAC';
+      if (k === 'mp3')  return 'MP3';
+      if (k === 'opus') return 'OPUS';
+      return k.toUpperCase();
+    }
+    // Resolve the best art URL for a song. Order: user-fetched iTunes art,
+    // server-extracted embedded cover, sidecar art file in the album folder.
+    function getSongArtUrl(song) {
+      if (!song) return null;
+      const m = getMeta(song.id);
+      if (m && m.albumArtUrl) return m.albumArtUrl;
+      const base = apiBase();
+      if (!base) return null;
+      if (song.embeddedArt) return base + '/artcache/' + song.embeddedArt;
+      if (song.hasArt && song.artFile) {
+        return base + '/api.php?action=art&path=' + encodeURIComponent(song.artFile);
+      }
+      return null;
+    }
 
     async function toggleStar(id) {
       const val = !isStarred(id);
@@ -5180,8 +5384,9 @@ function setMS(song) {
 
         const starSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="${starred ? HEART_RED : 'none'}" stroke="${starred ? HEART_RED : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
         const cacheSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">${isCached ? '<polyline points="20 6 9 17 4 12"/>' : DL_SVG}</svg>`;
-        const artHtml = m.albumArtUrl
-          ? `<img src="${m.albumArtUrl}" class="art-thumb" onerror="this.parentNode.innerHTML='${ART_PLACEHOLDER}'">`
+        const rowArtUrl = getSongArtUrl(song);
+        const artHtml = rowArtUrl
+          ? `<img src="${esc(rowArtUrl)}" class="art-thumb" onerror="this.parentNode.innerHTML='${ART_PLACEHOLDER}'">`
           : ART_PLACEHOLDER;
 
         // Track number: playlist/upnext = position in list, everything else = album track
@@ -5560,26 +5765,45 @@ function setMS(song) {
 
     // ── MOBILE ALBUM GRID helpers ─────────────────────────────────────────────────
 
-    // Build album groups from the current view's songs
+    // Build album groups from the current view's songs.
+    // When the same album+artist exists in multiple formats (e.g. FLAC + AAC
+    // rips of the same release), split into separate tiles per codec so songs
+    // don't interleave on drilldown. Single-format albums stay as one tile.
     function getMobAlbumGroups() {
       const viewSongs = getViewSongs();
       const isCompilations = view === 'compilations';
-      const groups = {}; // key -> {album, artistKey, displayArtist, songs[], artUrl}
+
+      // Pass 1: tally distinct codecs per (album+artist) so we know which
+      // albums need codec-split tiles.
+      const codecsByAlbum = {};
       for (const song of viewSongs) {
         const artistKey = isCompilations ? '__various__' : _groupArtist(song);
-        const albumKey = (song.album || '').toLowerCase().trim() + '|||' + artistKey;
+        const baseKey = (song.album || '').toLowerCase().trim() + '|||' + artistKey;
+        if (!codecsByAlbum[baseKey]) codecsByAlbum[baseKey] = new Set();
+        codecsByAlbum[baseKey].add(_fmtKey(song));
+      }
+
+      const groups = {}; // key -> {album, artistKey, codec, displayArtist, songs[], artUrl}
+      for (const song of viewSongs) {
+        const artistKey = isCompilations ? '__various__' : _groupArtist(song);
+        const baseKey = (song.album || '').toLowerCase().trim() + '|||' + artistKey;
+        const splitByCodec = codecsByAlbum[baseKey].size > 1;
+        const codec = splitByCodec ? _fmtKey(song) : null;
+        const albumKey = splitByCodec ? baseKey + '|||' + codec : baseKey;
         if (!groups[albumKey]) {
           groups[albumKey] = {
             album: song.album || '',
             artistKey,
+            codec,
             displayArtist: isCompilations ? 'Various Artists' : (song.album_artist || song.artist || ''),
             songs: [],
             artUrl: null
           };
         }
         groups[albumKey].songs.push(song);
-        if (!groups[albumKey].artUrl && getMeta(song.id).albumArtUrl) {
-          groups[albumKey].artUrl = getMeta(song.id).albumArtUrl;
+        if (!groups[albumKey].artUrl) {
+          const u = getSongArtUrl(song);
+          if (u) groups[albumKey].artUrl = u;
         }
       }
       return groups;
@@ -5616,8 +5840,9 @@ function setMS(song) {
       const isCompilations = view === 'compilations';
       return viewSongs.filter(s => {
         const albumMatch = (s.album || '').toLowerCase().trim() === d.album;
-        if (isCompilations) return albumMatch;
-        return albumMatch && _groupArtist(s) === d.artistKey;
+        const codecMatch = !d.codec || _fmtKey(s) === d.codec;
+        if (isCompilations) return albumMatch && codecMatch;
+        return albumMatch && _groupArtist(s) === d.artistKey && codecMatch;
       });
     }
 
@@ -5637,18 +5862,21 @@ function setMS(song) {
         if (g.songs.length > 3) complete.push(g);
         else incomplete.push(g);
       }
-      // Sort complete albums: by displayArtist then album name
+      // Sort complete albums: by displayArtist → album → codec (so multi-format
+      // copies of the same album sit next to each other)
       complete.sort((a, b) => {
         const ar = a.artistKey.toLowerCase(), br = b.artistKey.toLowerCase();
         if (ar !== br) return ar < br ? -1 : 1;
-        return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
+        const aa = (a.album || '').toLowerCase(), bb = (b.album || '').toLowerCase();
+        if (aa !== bb) return aa < bb ? -1 : 1;
+        return (a.codec || '').localeCompare(b.codec || '');
       });
 
       const frag = document.createDocumentFragment();
       const grid = document.createElement('div');
       grid.id = 'mob-album-grid';
 
-      function makeTile(album, artistKey, displayArtist, artUrl, label, isIncomplete, tileSongs) {
+      function makeTile(album, artistKey, displayArtist, artUrl, label, isIncomplete, tileSongs, codec) {
         const tile = document.createElement('div');
         tile.className = 'mob-album-tile';
         // Square wrapper via padding-bottom trick (reliable cross-browser)
@@ -5667,6 +5895,12 @@ function setMS(song) {
           artInner.innerHTML = placeholderSvg;
         }
         artWrap.appendChild(artInner);
+        if (codec) {
+          const fmt = document.createElement('div');
+          fmt.className = 'mob-album-fmt';
+          fmt.textContent = _fmtLabel({ codec });
+          artWrap.appendChild(fmt);
+        }
         const nameDiv = document.createElement('div');
         nameDiv.className = 'mob-album-name';
         nameDiv.textContent = label;
@@ -5682,7 +5916,7 @@ function setMS(song) {
         tile.addEventListener('click', () => {
           mobileAlbumDrilldown = isIncomplete
             ? { isIncomplete: true, label: 'Incomplete' }
-            : { album: (album || '').toLowerCase().trim(), artistKey, label: album || 'Unknown' };
+            : { album: (album || '').toLowerCase().trim(), artistKey, codec: codec || null, label: album || 'Unknown' };
           pushMobileHistory();
           renderList();
         });
@@ -5701,13 +5935,13 @@ function setMS(song) {
       }
 
       for (const g of complete) {
-        grid.appendChild(makeTile(g.album, g.artistKey, g.displayArtist, g.artUrl, g.album || 'Unknown', false, g.songs));
+        grid.appendChild(makeTile(g.album, g.artistKey, g.displayArtist, g.artUrl, g.album || 'Unknown', false, g.songs, g.codec));
       }
       if (incomplete.length > 0) {
         // Pick first art from incomplete group, or none
         const incArt = incomplete.find(g => g.artUrl)?.artUrl || null;
         const incSongs = incomplete.flatMap(g => g.songs);
-        grid.appendChild(makeTile(null, null, null, incArt, 'Incomplete', true, incSongs));
+        grid.appendChild(makeTile(null, null, null, incArt, 'Incomplete', true, incSongs, null));
       }
 
       frag.appendChild(grid);
@@ -5727,30 +5961,43 @@ function setMS(song) {
       const lib = libSongs();
       const cachedSongs = lib.filter(x => cachedIds.has(x.id));
 
-      // Group by album + artist (same logic as getMobAlbumGroups but over cached songs)
+      // Group by album + artist, split by codec when an album has multiple formats
+      const codecsByAlbum = {};
+      for (const song of cachedSongs) {
+        const baseKey = (song.album || '').toLowerCase().trim() + '|||' + _groupArtist(song);
+        if (!codecsByAlbum[baseKey]) codecsByAlbum[baseKey] = new Set();
+        codecsByAlbum[baseKey].add(_fmtKey(song));
+      }
       const groups = {};
       for (const song of cachedSongs) {
         const artistKey = _groupArtist(song);
-        const albumKey = (song.album || '').toLowerCase().trim() + '|||' + artistKey;
+        const baseKey = (song.album || '').toLowerCase().trim() + '|||' + artistKey;
+        const splitByCodec = codecsByAlbum[baseKey].size > 1;
+        const codec = splitByCodec ? _fmtKey(song) : null;
+        const albumKey = splitByCodec ? baseKey + '|||' + codec : baseKey;
         if (!groups[albumKey]) {
           groups[albumKey] = {
             album: song.album || '',
             artistKey,
+            codec,
             displayArtist: song.album_artist || song.artist || '',
             songs: [],
             artUrl: null
           };
         }
         groups[albumKey].songs.push(song);
-        if (!groups[albumKey].artUrl && getMeta(song.id).albumArtUrl) {
-          groups[albumKey].artUrl = getMeta(song.id).albumArtUrl;
+        if (!groups[albumKey].artUrl) {
+          const u = getSongArtUrl(song);
+          if (u) groups[albumKey].artUrl = u;
         }
       }
 
       const albumList = Object.values(groups).sort((a, b) => {
         const ar = a.artistKey.toLowerCase(), br = b.artistKey.toLowerCase();
         if (ar !== br) return ar < br ? -1 : 1;
-        return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
+        const aa = (a.album || '').toLowerCase(), bb = (b.album || '').toLowerCase();
+        if (aa !== bb) return aa < bb ? -1 : 1;
+        return (a.codec || '').localeCompare(b.codec || '');
       });
 
       const frag = document.createDocumentFragment();
@@ -5780,6 +6027,12 @@ function setMS(song) {
             artInner.innerHTML = placeholderSvg;
           }
           artWrap.appendChild(artInner);
+          if (g.codec) {
+            const fmt = document.createElement('div');
+            fmt.className = 'mob-album-fmt';
+            fmt.textContent = _fmtLabel({ codec: g.codec });
+            artWrap.appendChild(fmt);
+          }
           const nameDiv = document.createElement('div');
           nameDiv.className = 'mob-album-name';
           nameDiv.textContent = g.album || 'Unknown';
@@ -5790,7 +6043,7 @@ function setMS(song) {
           tile.appendChild(nameDiv);
           tile.appendChild(artistDiv);
           tile.addEventListener('click', () => {
-            mobileAlbumDrilldown = { album: g.album.toLowerCase().trim(), artistKey: g.artistKey, label: g.album || 'Unknown' };
+            mobileAlbumDrilldown = { album: g.album.toLowerCase().trim(), artistKey: g.artistKey, codec: g.codec || null, label: g.album || 'Unknown' };
             pushMobileHistory();
             renderList();
           });
@@ -5932,16 +6185,21 @@ function setMS(song) {
       if (backBar) backBar.classList.remove('show');
 
       const lib = libSongs().filter(s => !s._missing);
-      // Group by canonical artist key
+      // Group by canonical artist key. When the same artist appears under
+      // multiple casings (Adele/ADELE, Tate McRae/Tate Mcrae), tally each
+      // variant and use the most-common one as the display name.
       const artistMap = {};
       for (const song of lib) {
         const key = _groupArtist(song);
-        if (!artistMap[key]) {
-          artistMap[key] = { key, displayName: song.album_artist || song.artist || key, count: 0 };
-        }
+        const variant = song.album_artist || song.artist || key;
+        if (!artistMap[key]) artistMap[key] = { key, variants: {}, count: 0 };
+        artistMap[key].variants[variant] = (artistMap[key].variants[variant] || 0) + 1;
         artistMap[key].count++;
       }
-      const artists = Object.values(artistMap);
+      const artists = Object.values(artistMap).map(a => ({
+        ...a,
+        displayName: Object.entries(a.variants).sort((x, y) => y[1] - x[1])[0][0],
+      }));
       // Apply search filter
       const filteredArtists = sq
         ? artists.filter(a => a.displayName.toLowerCase().includes(sq.toLowerCase()))
@@ -6395,7 +6653,88 @@ function setMS(song) {
     document.getElementById('ctx-uncache').addEventListener('click', () => { if (ctxId) uncache(ctxId); hideCtx(); });
     document.getElementById('ctx-goto-artist').addEventListener('click', () => { if (ctxId) { const s = songs.find(x => x.id === ctxId); if (s) goToArtist(s.artist); } hideCtx(); });
     document.getElementById('ctx-goto-album').addEventListener('click',  () => { if (ctxId) { const s = songs.find(x => x.id === ctxId); if (s) goToAlbum(s.album, s.artist); } hideCtx(); });
+    document.getElementById('ctx-edit-meta').addEventListener('click',  () => { if (ctxId) openMetaEdit(ctxId); hideCtx(); });
     document.addEventListener('click', hideCtx);
+
+    // ── METADATA EDIT MODAL ──────────────────────────────────────────────────────
+    let metaEditId = null;
+    function openMetaEdit(id) {
+      const s = songs.find(x => x.id === id);
+      if (!s) return;
+      metaEditId = id;
+      // Populate with the current effective values (overrides already applied)
+      document.getElementById('meta-title').value         = s.title || '';
+      document.getElementById('meta-artist').value        = s.artist || '';
+      document.getElementById('meta-album-artist').value  = s.album_artist || '';
+      document.getElementById('meta-album').value         = s.album || '';
+      document.getElementById('meta-year').value          = s.year || '';
+      document.getElementById('meta-genre').value         = s.genre || '';
+      document.getElementById('meta-track').value         = s.track || '';
+      document.getElementById('meta-disc').value          = s.disc || '';
+      document.getElementById('meta-mo').classList.add('show');
+      setTimeout(() => document.getElementById('meta-title').focus(), 50);
+    }
+    function closeMetaEdit() {
+      document.getElementById('meta-mo').classList.remove('show');
+      metaEditId = null;
+    }
+    document.getElementById('meta-cancel').addEventListener('click', closeMetaEdit);
+    document.getElementById('meta-mo').addEventListener('click', e => {
+      if (e.target.id === 'meta-mo') closeMetaEdit();
+    });
+    document.getElementById('meta-save').addEventListener('click', async () => {
+      if (!metaEditId) return;
+      const id = metaEditId;
+      const s = songs.find(x => x.id === id);
+      if (!s) { closeMetaEdit(); return; }
+      // Build a patch only for fields whose new value differs from the
+      // ORIGINAL (server) value. Equal values get null'd so the override
+      // is cleared rather than stored as a redundant duplicate.
+      const newVals = {
+        title:        document.getElementById('meta-title').value.trim(),
+        artist:       document.getElementById('meta-artist').value.trim(),
+        album_artist: document.getElementById('meta-album-artist').value.trim(),
+        album:        document.getElementById('meta-album').value.trim(),
+        year:         document.getElementById('meta-year').value.trim(),
+        genre:        document.getElementById('meta-genre').value.trim(),
+        track:        document.getElementById('meta-track').value.trim(),
+        disc:         document.getElementById('meta-disc').value.trim(),
+      };
+      const orig = s._orig || {};
+      const patch = {};
+      for (const k of META_OVERRIDE_FIELDS) {
+        const origVal = (k in orig) ? orig[k] : s[k];
+        const isNum = (k === 'year' || k === 'track' || k === 'disc');
+        // Empty input always means "clear the override". Non-empty input
+        // is normalized (number coerced) and compared to the original;
+        // a match also clears the override.
+        let patchVal;
+        if (newVals[k] === '') {
+          patchVal = '';
+        } else if (isNum) {
+          const n = Number(newVals[k]) || 0;
+          patchVal = (n === (origVal || 0)) ? '' : n;
+        } else {
+          patchVal = (newVals[k] === (origVal || '')) ? '' : newVals[k];
+        }
+        patch[k] = patchVal;
+      }
+      await pushMeta({ [id]: patch });
+      closeMetaEdit();
+      renderList(); renderSB();
+      toast('Metadata updated');
+    });
+    document.getElementById('meta-reset').addEventListener('click', async () => {
+      if (!metaEditId) return;
+      const id = metaEditId;
+      if (!confirm('Clear all metadata overrides for this song?')) return;
+      const patch = {};
+      for (const k of META_OVERRIDE_FIELDS) patch[k] = '';
+      await pushMeta({ [id]: patch });
+      closeMetaEdit();
+      renderList(); renderSB();
+      toast('Metadata reset to original');
+    });
 
     // ── GROUP CONTEXT MENU (album tile / artist row long-press) ──────────────────
     let grpCtxSongs = [];
@@ -6860,6 +7199,7 @@ function setMS(song) {
       try { const m = localStorage.getItem('jb-manifest'); if (m) { songs = JSON.parse(m); console.log(`[Init] Loaded ${songs.length} songs from localStorage manifest`); setSt('', 'Cached manifest'); } } catch { }
       try { const l = localStorage.getItem('jb-meta'); if (l) { songMeta = JSON.parse(l); console.log(`[Init] Loaded meta for ${Object.keys(songMeta).length} songs from localStorage`); } } catch { }
       try { const l = localStorage.getItem('jb-userlib'); if (l) { userLib = JSON.parse(l); } } catch { }
+      applyMetaOverrides();
       await pullPlaylists();
       rebuildQ(); renderList(); renderSB();
       // Set initial history state for mobile so swipe-back has a state to restore

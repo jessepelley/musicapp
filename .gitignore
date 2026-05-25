@@ -5,3 +5,4 @@ artcache/
 .userlib-*.json
 .playlists-*.json
 .nowplaying-*.json
+/music
