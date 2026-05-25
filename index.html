@@ -473,6 +473,59 @@
     #msel-count { font-size: 12px; color: var(--text2); white-space: nowrap; }
     #msel-bar .tb { font-size: 11px; padding: 3px 9px; min-height: 26px; }
     @media (max-width: 700px) { #msel-bar { display: none !important; } }
+    @media (max-width: 700px) { .desktop-only { display: none !important; } }
+
+    /* ── DUPLICATES VIEW ─────────────────────────────────────────────────── */
+    .dup-intro {
+      padding: 14px 18px;
+      font-size: 12px;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+    }
+    .dup-intro strong { color: var(--text); }
+    .dup-intro-sub { margin-top: 4px; font-size: 11px; color: var(--text3); }
+    .dup-intro code { font-family: 'DM Mono', monospace; font-size: 10.5px; background: var(--bg3); padding: 1px 4px; border-radius: 3px; }
+    .dup-group {
+      border-bottom: 1px solid var(--border);
+      padding: 4px 0 10px;
+    }
+    .dup-group-hdr {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 12px 18px 6px;
+    }
+    .dup-group-title { font-size: 13px; color: var(--text); font-weight: 600; }
+    .dup-group-dash { color: var(--text3); margin: 0 4px; font-weight: 400; }
+    .dup-group-count { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; }
+    .dup-rows { display: flex; flex-direction: column; }
+    .dup-row {
+      display: grid;
+      grid-template-columns: 44px minmax(120px, 1fr) 60px 70px 70px 50px minmax(180px, 2fr) 150px;
+      gap: 10px;
+      align-items: center;
+      padding: 6px 18px;
+      font-size: 12px;
+      color: var(--text2);
+      border-top: 1px solid var(--border);
+    }
+    .dup-row:first-child { border-top: none; }
+    .dup-row.dup-keep { background: var(--green-bg, rgba(0,180,80,0.06)); }
+    .dup-keep-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      color: var(--green, #2da848);
+      text-align: center;
+    }
+    .dup-album { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dup-fmt, .dup-br, .dup-size, .dup-dur { font-family: 'DM Mono', monospace; font-size: 11px; }
+    .dup-path { color: var(--text3); font-family: 'DM Mono', monospace; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dup-actions { display: flex; gap: 6px; justify-content: flex-end; }
+    .dup-actions .tb { font-size: 11px; padding: 3px 9px; min-height: 24px; }
+    .dup-del { color: var(--red, #e5143a); border-color: currentColor; }
+    .dup-del:disabled { opacity: .5; cursor: default; }
 
     .sr.now {
       background: var(--green-bg) !important;
@@ -2549,7 +2602,18 @@
       padding: 14px;
     }
     @media (min-width: 700px) {
-      #cat-album-grid { grid-template-columns: repeat(5, 1fr); }
+      #cat-album-grid {
+        /* Desktop: fixed-size tiles so art stays a sensible thumbnail
+           regardless of viewport width (was repeat(5, 1fr) which made
+           tiles enormous on wide screens). */
+        grid-template-columns: repeat(auto-fill, minmax(150px, 180px));
+        justify-content: start;
+        gap: 18px;
+        padding: 18px;
+      }
+    }
+    @media (min-width: 1100px) {
+      #cat-album-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 190px)); }
     }
     .cat-album-tile { position: relative; }
     .cat-album-add {
@@ -2683,26 +2747,6 @@
     }
     .cr-request-row { cursor: default; }
     .cr-request-row:hover, .cr-request-row:active { background: none; }
-    .cr-lfm-key-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 14px;
-      border-top: 1px solid var(--border);
-      margin-top: 8px;
-    }
-    .cr-lfm-key-input {
-      flex: 1;
-      font-size: 11px;
-      background: var(--bg3);
-      border: 1px solid var(--border2);
-      border-radius: 6px;
-      padding: 5px 8px;
-      color: var(--text);
-      min-width: 0;
-    }
-    .cr-lfm-key-input:focus { border-color: var(--accent); outline: none; }
-
     /* ── MISSING SONG ROW ──────────────────────────────────────────────────── */
     .sr.missing {
       opacity: 0.45;
@@ -2842,6 +2886,13 @@
           <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
         </svg>
         Up Next <span class="badge" id="upnext-ct">0</span>
+      </div>
+      <div class="ni desktop-only" data-view="duplicates" id="nav-duplicates">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="11" height="11" rx="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Duplicates <span class="badge" id="duplicates-ct">0</span>
       </div>
       <div id="pl-nav"></div>
       <button id="catalog-search-trigger" class="tb" style="width:100%;margin-top:4px;justify-content:flex-start;gap:6px;font-size:12px;display:none;">
@@ -4716,30 +4767,16 @@
         });
       }
 
-      // Last.fm similar artists
+      // Last.fm similar artists — key lives server-side in api.php (LFM_API_KEY).
       const lfmContainer = document.createElement('div');
       frag.appendChild(lfmContainer);
-      const lfmKey = localStorage.getItem('jb-lfm-key') || '';
-      const keyBar = document.createElement('div');
-      keyBar.className = 'cr-lfm-key-bar';
-      keyBar.innerHTML = `<span style="color:var(--text3);font-size:11px;white-space:nowrap">Last.fm key:</span>
-        <input class="cr-lfm-key-input" type="text" value="${esc(lfmKey)}" placeholder="optional — enables Similar Artists" spellcheck="false" autocomplete="off">`;
-      const keyInput = keyBar.querySelector('.cr-lfm-key-input');
-      keyInput.addEventListener('change', () => {
-        const val = keyInput.value.trim();
-        if (val) localStorage.setItem('jb-lfm-key', val);
-        else localStorage.removeItem('jb-lfm-key');
-        renderLfmSection(lfmContainer, val);
-      });
-      frag.appendChild(keyBar);
-      if (lfmKey) renderLfmSection(lfmContainer, lfmKey);
+      renderLfmSection(lfmContainer);
 
       el.appendChild(frag);
     }
 
-    async function renderLfmSection(container, apiKey) {
+    async function renderLfmSection(container) {
       container.innerHTML = '';
-      if (!apiKey) return;
 
       // Top 3 played artists in library
       const libIds = new Set(Object.keys(userLib));
@@ -4761,14 +4798,13 @@
       const similarNames = new Set();
       try {
         await Promise.all(topArtists.map(async artist => {
-          const url = `https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=${encodeURIComponent(artist)}&api_key=${encodeURIComponent(apiKey)}&limit=10&format=json`;
-          const resp = await fetch(url);
-          if (!resp.ok) return;
-          const data = await resp.json();
+          const data = await afetch('lfm_similar_artists', { artist, limit: 10 });
           (data.similarartists?.artist || []).forEach(a => similarNames.add(a.name));
         }));
-      } catch {
-        container.innerHTML = '<div class="cr-section-label" style="color:var(--red)">Last.fm — check API key</div>';
+      } catch (e) {
+        // 503 means the server has no key configured — render nothing.
+        if (String(e?.message || '').includes('503')) { container.innerHTML = ''; return; }
+        container.innerHTML = '<div class="cr-section-label" style="color:var(--red)">Last.fm — request failed</div>';
         return;
       }
       if (!similarNames.size) { container.innerHTML = ''; return; }
@@ -5154,10 +5190,11 @@ function setMS(song) {
       return arr;
     }
     // ── "PLAY SONGS LIKE THIS" ────────────────────────────────────────────────────
-    // Build a 20-track queue seeded by the given song. Uses Last.fm
-    // track.getSimilar → artist.getSimilar when an API key is set in the
-    // catalogue settings, otherwise falls back to a local genre+era+playcount
-    // heuristic. The source song always plays first.
+    // Build a 20-track queue seeded by the given song. Tries Last.fm
+    // track.getSimilar → artist.getSimilar via the server-side proxy (key
+    // lives in api.php as LFM_API_KEY). If the server has no key, or the
+    // call fails, falls back to a local genre+era+playcount heuristic.
+    // The source song always plays first.
     async function playLikeThis(seedId) {
       const seed = songs.find(s => s.id === seedId);
       if (!seed) { toast('Song not found'); return; }
@@ -5166,8 +5203,7 @@ function setMS(song) {
       toast('Finding similar songs…');
       const TARGET = 19; // 20 including the seed
 
-      const lfmKey = localStorage.getItem('jb-lfm-key') || '';
-      let chosen = lfmKey ? await _lfmSimilarTracks(seed, lib, TARGET, lfmKey) : null;
+      let chosen = await _lfmSimilarTracks(seed, lib, TARGET);
 
       if (!chosen || chosen.length < TARGET) {
         const have = chosen ? new Set(chosen.map(s => s.id)) : new Set();
@@ -5196,10 +5232,11 @@ function setMS(song) {
       clearPrefetch();
       updCounts();
       playSong(seedId);
+      switchView('upnext');
       toast(`Playing ${finalQ.length} songs like "${seed.title || ''}"`);
     }
 
-    async function _lfmSimilarTracks(seed, lib, target, apiKey) {
+    async function _lfmSimilarTracks(seed, lib, target) {
       const out = [];
       const taken = new Set([seed.id]);
       const libByTitleArtist = new Map();
@@ -5214,40 +5251,42 @@ function setMS(song) {
       }
 
       try {
-        // 1) track.getSimilar
-        const trackUrl = `https://ws.audioscrobbler.com/2.0/?method=track.getSimilar&track=${encodeURIComponent(seed.title || '')}&artist=${encodeURIComponent(seed.artist || '')}&api_key=${encodeURIComponent(apiKey)}&limit=50&format=json`;
-        const r1 = await fetch(trackUrl);
-        if (r1.ok) {
-          const d = await r1.json();
-          for (const t of (d.similartracks?.track || [])) {
-            if (out.length >= target) break;
-            const ta = ((t.name || '') + '|' + (t.artist?.name || '')).toLowerCase();
-            const hit = libByTitleArtist.get(ta);
-            if (hit && !taken.has(hit.id)) { out.push(hit); taken.add(hit.id); }
-          }
+        // 1) track.getSimilar (via server proxy)
+        const d1 = await afetch('lfm_similar_tracks', {
+          track:  seed.title  || '',
+          artist: seed.artist || '',
+          limit:  50,
+        });
+        for (const t of (d1?.similartracks?.track || [])) {
+          if (out.length >= target) break;
+          const ta = ((t.name || '') + '|' + (t.artist?.name || '')).toLowerCase();
+          const hit = libByTitleArtist.get(ta);
+          if (hit && !taken.has(hit.id)) { out.push(hit); taken.add(hit.id); }
         }
         if (out.length >= target) return out;
 
         // 2) artist.getSimilar — backfill with songs from similar artists
-        const artistUrl = `https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=${encodeURIComponent(seed.artist || '')}&api_key=${encodeURIComponent(apiKey)}&limit=15&format=json`;
-        const r2 = await fetch(artistUrl);
-        if (r2.ok) {
-          const d = await r2.json();
-          const similarArtists = (d.similarartists?.artist || []).map(a => a.name.toLowerCase());
-          for (const a of similarArtists) {
+        const d2 = await afetch('lfm_similar_artists', {
+          artist: seed.artist || '',
+          limit:  15,
+        });
+        const similarArtists = (d2?.similarartists?.artist || []).map(a => a.name.toLowerCase());
+        for (const a of similarArtists) {
+          if (out.length >= target) break;
+          const pool = libByArtist.get(a);
+          if (!pool) continue;
+          // Pick highest play-count from that artist first
+          const ranked = pool.slice().sort((x, y) => playCount(y.id) - playCount(x.id));
+          for (const s of ranked) {
             if (out.length >= target) break;
-            const pool = libByArtist.get(a);
-            if (!pool) continue;
-            // Pick highest play-count from that artist first
-            const ranked = pool.slice().sort((x, y) => playCount(y.id) - playCount(x.id));
-            for (const s of ranked) {
-              if (out.length >= target) break;
-              if (!taken.has(s.id)) { out.push(s); taken.add(s.id); }
-            }
+            if (!taken.has(s.id)) { out.push(s); taken.add(s.id); }
           }
         }
       } catch (e) {
-        console.warn('[Songs Like This] Last.fm error', e);
+        // 503 = server has no key; fall back silently. Other errors get logged.
+        if (!String(e?.message || '').includes('503')) {
+          console.warn('[Songs Like This] Last.fm error', e);
+        }
       }
       return out;
     }
@@ -5461,6 +5500,12 @@ function setMS(song) {
         ).size;
         document.getElementById('artists-ct').textContent = new Set(nonMissing.map(s => _groupArtist(s))).size;
       }
+      const dupBadge = document.getElementById('duplicates-ct');
+      if (dupBadge) {
+        // Only desktop renders this view; still compute for the sidebar badge
+        // even if the user never opens it (it's cheap — linear over songs).
+        try { dupBadge.textContent = getDuplicateGroups().length; } catch { dupBadge.textContent = '0'; }
+      }
     }
 
     // ── STATUS BAR (iTunes-style) ─────────────────────────────────────────────────
@@ -5605,6 +5650,49 @@ function setMS(song) {
       return ids;
     }
 
+    // ── DUPLICATES ────────────────────────────────────────────────────────────────
+    // Group catalogue songs by normalized (artist + title). Duplicate = any
+    // group with 2+ members. Returns an array of groups; each group is sorted
+    // with the "recommended keep" first (highest bitrate → largest file →
+    // lossless preferred → most recent).
+    function _dupNormTitle(t) {
+      return (t || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    }
+    function _dupFmtRank(s) {
+      const k = ((s.codec || s.ext) || '').toLowerCase();
+      if (k === 'flac' || k === 'alac' || k === 'wav' || k === 'aiff') return 3;
+      if (k === 'm4a' || k === 'aac')  return 2;
+      if (k === 'mp3' || k === 'opus' || k === 'ogg') return 1;
+      return 0;
+    }
+    function _dupScore(s) {
+      // Higher = keep. Bitrate dominates, then lossless preference, then size, then mtime.
+      return (s.bitrate || 0) + _dupFmtRank(s) * 500000 + (s.size || 0) / 1e9 + (s.modified || 0) / 1e12;
+    }
+    function getDuplicateGroups() {
+      const groups = new Map();
+      for (const s of songs) {
+        const t = _dupNormTitle(s.title);
+        const a = _groupArtist(s);
+        if (!t || !a) continue;
+        const k = a + '|||' + t;
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(s);
+      }
+      const out = [];
+      for (const [k, arr] of groups) {
+        if (arr.length < 2) continue;
+        arr.sort((a, b) => _dupScore(b) - _dupScore(a));
+        out.push({ key: k, songs: arr });
+      }
+      // Most copies first, then alphabetical by artist+title
+      out.sort((a, b) => {
+        if (b.songs.length !== a.songs.length) return b.songs.length - a.songs.length;
+        return a.key.localeCompare(b.key);
+      });
+      return out;
+    }
+
     function getViewSongs() {
       const col = sortCol(), dir = sortDir();
       let s;
@@ -5622,6 +5710,17 @@ function setMS(song) {
         // Show current queue in order from current position
         const allQ = queue.map(id => songs.find(x => x.id === id)).filter(Boolean);
         return allQ; // no search filter, no re-sort
+      }
+      if (view === 'duplicates') {
+        // Flatten all dup groups into a single list (grouping is added back
+        // by the renderList branch via header rows). Search filter applies.
+        const flat = [];
+        for (const g of getDuplicateGroups()) for (const x of g.songs) flat.push(x);
+        if (sq) {
+          const q = sq.toLowerCase();
+          return flat.filter(x => (x.title||'').toLowerCase().includes(q) || (x.artist||'').toLowerCase().includes(q) || (x.album||'').toLowerCase().includes(q));
+        }
+        return flat;
       }
       if (view === 'cached') s = lib.filter(x => cachedIds.has(x.id));
       else if (view === 'all' || view === 'artists') s = [...lib];
@@ -5930,6 +6029,11 @@ function setMS(song) {
       }
       if (mobile && view === 'cached' && !mobileAlbumDrilldown) {
         renderMobCacheGrid(); return;
+      }
+      // Desktop-only Duplicates view — grouped list with per-row delete.
+      if (!mobile && view === 'duplicates') {
+        renderDuplicatesView();
+        return;
       }
 
       // Drilldown songs (album or artist)
@@ -6723,6 +6827,135 @@ function setMS(song) {
       updateStatusBar([]);
     }
 
+    // ── DUPLICATES VIEW (desktop only) ────────────────────────────────────────
+    // Renders dup groups as expandable sections. Each row shows format/bitrate/
+    // size + a "Delete" button that moves the file to the server trash dir.
+    function _bytesFmt(n) {
+      if (!n) return '';
+      if (n >= 1e9) return (n / 1e9).toFixed(2) + ' GB';
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + ' MB';
+      if (n >= 1e3) return (n / 1e3).toFixed(0) + ' KB';
+      return n + ' B';
+    }
+    function _kbpsFmt(b) { return b ? Math.round(b / 1000) + ' kbps' : ''; }
+
+    async function deleteSongFile(songId) {
+      const s = songs.find(x => String(x.id) === String(songId));
+      if (!s) { toast('Song not found'); return false; }
+      if (!confirm(`Move this file to the server trash?\n\n${s.artist || ''} — ${s.title || ''}\n${s.path}\n\n(Recoverable from /volume1/music/.trash on the NAS.)`)) return false;
+      try {
+        await apost('delete_song', { path: s.path });
+        // Drop from in-memory catalog + every user lib reference + queue.
+        songs = songs.filter(x => String(x.id) !== String(songId));
+        delete userLib[String(songId)];
+        const qIdx = queue.indexOf(songId);
+        if (qIdx >= 0) { queue.splice(qIdx, 1); if (qIdx < qi) qi--; }
+        await pushUserLib();
+        toast(`Trashed: ${s.title || s.path}`);
+        updCounts(); renderSB(); renderList();
+        return true;
+      } catch (e) {
+        console.error('[Dup] delete failed', e);
+        toast('Delete failed: ' + (e.message || 'server error'));
+        return false;
+      }
+    }
+
+    function renderDuplicatesView() {
+      const list = document.getElementById('sl');
+      const empty = document.getElementById('empty');
+      const colHdrs = document.getElementById('col-hdrs');
+      if (colHdrs) colHdrs.style.display = 'none';
+
+      const groups = getDuplicateGroups();
+      // Apply search if user is searching
+      const q = (sq || '').toLowerCase();
+      const filtered = q
+        ? groups.filter(g => g.songs.some(s =>
+            (s.title||'').toLowerCase().includes(q) ||
+            (s.artist||'').toLowerCase().includes(q) ||
+            (s.album||'').toLowerCase().includes(q)))
+        : groups;
+
+      if (!filtered.length) {
+        list.innerHTML = '';
+        document.getElementById('empty-h').textContent = q ? 'No matching duplicates' : 'No duplicates found';
+        document.getElementById('empty-p').textContent = q ? 'Try a different search.' : 'Your catalogue has no songs with matching artist + title.';
+        document.getElementById('empty-set').style.display = 'none';
+        document.getElementById('empty-browse').style.display = 'none';
+        empty.classList.add('show');
+        const totalCopies = groups.reduce((a, g) => a + g.songs.length, 0);
+        document.getElementById('status-bar-txt').textContent = `${groups.length} duplicate group${groups.length !== 1 ? 's' : ''} · ${totalCopies} files`;
+        updateUpNextBar();
+        return;
+      }
+      empty.classList.remove('show');
+
+      const frag = document.createDocumentFragment();
+      const intro = document.createElement('div');
+      intro.className = 'dup-intro';
+      const totalCopies = filtered.reduce((a, g) => a + g.songs.length, 0);
+      const reclaimable = filtered.reduce((a, g) => a + g.songs.slice(1).reduce((x, s) => x + (s.size || 0), 0), 0);
+      intro.innerHTML = `
+        <div><strong>${filtered.length}</strong> duplicate group${filtered.length !== 1 ? 's' : ''} · <strong>${totalCopies}</strong> files · potential reclaim if you keep one copy each: <strong>${_bytesFmt(reclaimable)}</strong></div>
+        <div class="dup-intro-sub">Matched by normalized artist + title. The first row in each group is the recommended keep (highest bitrate / lossless preferred). Delete moves the file to <code>/volume1/music/.trash</code> on the NAS.</div>`;
+      frag.appendChild(intro);
+
+      filtered.forEach(g => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'dup-group';
+        const head = g.songs[0];
+        groupEl.innerHTML = `
+          <div class="dup-group-hdr">
+            <div class="dup-group-title">${esc(head.artist || '')} <span class="dup-group-dash">—</span> ${esc(head.title || '')}</div>
+            <div class="dup-group-count">${g.songs.length} copies</div>
+          </div>`;
+        const rows = document.createElement('div');
+        rows.className = 'dup-rows';
+        g.songs.forEach((s, i) => {
+          const isKeep = i === 0;
+          const row = document.createElement('div');
+          row.className = 'dup-row' + (isKeep ? ' dup-keep' : '');
+          row.dataset.id = s.id;
+          row.innerHTML = `
+            <div class="dup-keep-badge" title="${isKeep ? 'Recommended to keep' : 'Suggested duplicate'}">${isKeep ? 'KEEP' : ''}</div>
+            <div class="dup-album" title="${esc(s.album || '')}">${esc(s.album || '—')}</div>
+            <div class="dup-fmt">${esc(_fmtLabel(s))}</div>
+            <div class="dup-br">${_kbpsFmt(s.bitrate)}</div>
+            <div class="dup-size">${_bytesFmt(s.size)}</div>
+            <div class="dup-dur">${fmt(s.duration)}</div>
+            <div class="dup-path" title="${esc(s.path || '')}">${esc(s.path || '')}</div>
+            <div class="dup-actions">
+              <button class="tb dup-play" data-id="${s.id}" title="Play this copy">▶</button>
+              <button class="tb dup-del" data-id="${s.id}" title="Move file to trash">Delete</button>
+            </div>`;
+          rows.appendChild(row);
+        });
+        groupEl.appendChild(rows);
+        frag.appendChild(groupEl);
+      });
+
+      list.innerHTML = '';
+      list.appendChild(frag);
+
+      // Wire actions (delegated would also work; explicit is fine for a manual view)
+      list.querySelectorAll('.dup-play').forEach(b => {
+        b.addEventListener('click', e => { e.stopPropagation(); playSong(b.dataset.id, true, true); });
+      });
+      list.querySelectorAll('.dup-del').forEach(b => {
+        b.addEventListener('click', async e => {
+          e.stopPropagation();
+          b.disabled = true; b.textContent = 'Deleting…';
+          const ok = await deleteSongFile(b.dataset.id);
+          if (!ok) { b.disabled = false; b.textContent = 'Delete'; }
+        });
+      });
+
+      document.getElementById('status-bar-txt').textContent = `${filtered.length} duplicate group${filtered.length !== 1 ? 's' : ''} · ${totalCopies} files · ${_bytesFmt(reclaimable)} reclaimable`;
+      document.getElementById('reset-cache-btn').style.display = 'none';
+      updateUpNextBar();
+    }
+
     // Render the library home screen (vertical nav list) on mobile
     function renderMobLibraryNav() {
       const list = document.getElementById('sl');
@@ -7001,6 +7234,7 @@ function setMS(song) {
       'most-skipped':    'Most Skipped',
       'never-played':    'Never Played',
       'starred':         'Loved',
+      'duplicates':      'Duplicates',
     };
     function viewDisplayName(v) {
       if (VIEW_NAMES[v]) return VIEW_NAMES[v];
@@ -7068,6 +7302,7 @@ function setMS(song) {
     document.getElementById('nav-compilations').addEventListener('click', () => { switchView('compilations'); closeSidebar(); });
     document.getElementById('nav-cached').addEventListener('click', () => { switchView('cached'); closeSidebar(); });
     document.getElementById('nav-upnext').addEventListener('click', () => { switchView('upnext'); closeSidebar(); });
+    document.getElementById('nav-duplicates').addEventListener('click', () => { switchView('duplicates'); closeSidebar(); });
 
     // ── MOBILE BACK BAR (album / artist drilldown) ────────────────────────────────
     document.getElementById('mob-back-bar').addEventListener('click', () => {

@@ -27,6 +27,13 @@ define('HLS_MAX_AGE',   3600); // clean up HLS sessions older than 1 hour
 // HMAC_SECRET signs stream URLs — set to any long random string, never change it.
 // Changing this invalidates all previously signed URLs.
 define('HMAC_SECRET', 'dc74259ff20208260be142960d22a3e9d0ea69eae6fff066b162bfe2ec25f6d3');
+// ── LAST.FM ──────────────────────────────────────────────────────────────────
+// Server-side Last.fm API key. Powers the "Similar Artists" panel in the
+// Catalogue and the "Play Songs Like This" queue builder for every user.
+// Get a key at https://www.last.fm/api/account/create — paste it here.
+// Leave as empty string to disable Last.fm features (clients fall back to
+// the local heuristic for "Play Songs Like This").
+define('LFM_API_KEY', '');
 // ── AUDIT (per-song background fix) ──────────────────────────────────────────
 // When a client plays an M4A, the stream handler kicks off a background ffmpeg
 // audit of that file. Corrupt-but-fixable files are remuxed losslessly into a
@@ -190,6 +197,9 @@ elseif  ($action === 'albumart')        handleAlbumArt();
 elseif  ($action === 'hls_generate')    handleHlsGenerate();
 elseif  ($action === 'hls_serve')       handleHlsServe();
 elseif  ($action === 'whoami')          handleWhoAmI();
+elseif  ($action === 'delete_song')     handleDeleteSong();
+elseif  ($action === 'lfm_similar_tracks')  handleLfmSimilarTracks();
+elseif  ($action === 'lfm_similar_artists') handleLfmSimilarArtists();
 else {
     http_response_code(400);
     header('Content-Type: application/json');
@@ -630,6 +640,89 @@ function handleSavePlaylists() {
     }
     echo json_encode(['ok' => true, 'count' => count($clean)]);
 }
+// ─── DELETE SONG (move to trash) ─────────────────────────────────────────────
+// Moves a song file from MUSIC_DIR into MUSIC_DIR/.trash, preserving its
+// relative path so it can be restored manually. Used by the Duplicates view.
+// Trashed files are invisible to the library scanner (filenames starting with '.').
+function handleDeleteSong() {
+    header('Content-Type: application/json; charset=utf-8');
+    $body = file_get_contents('php://input');
+    $data = $body ? json_decode($body, true) : null;
+    $path = is_array($data) && isset($data['path']) ? (string)$data['path'] : '';
+    if ($path === '') { http_response_code(400); echo json_encode(['error' => 'Missing path']); return; }
+
+    $base = realpath(MUSIC_DIR);
+    if (!$base) { http_response_code(500); echo json_encode(['error' => 'MUSIC_DIR not found']); return; }
+    $full = realpath($base . '/' . ltrim($path, '/'));
+    if (!$full || strpos($full, $base . DIRECTORY_SEPARATOR) !== 0 || !is_file($full)) {
+        http_response_code(404); echo json_encode(['error' => 'File not found']); return;
+    }
+
+    $trashRoot = $base . '/.trash';
+    if (!is_dir($trashRoot)) @mkdir($trashRoot, 0755, true);
+    if (!is_dir($trashRoot)) { http_response_code(500); echo json_encode(['error' => 'Could not create trash dir']); return; }
+
+    $rel = ltrim($path, '/');
+    $ts  = date('Ymd-His');
+    $dst = $trashRoot . '/' . $ts . '__' . str_replace('/', '_', $rel);
+    // If a name collision somehow happens, append a counter.
+    $i = 1;
+    while (file_exists($dst)) {
+        $dst = $trashRoot . '/' . $ts . '__' . $i . '__' . str_replace('/', '_', $rel);
+        $i++;
+    }
+    if (!@rename($full, $dst)) {
+        http_response_code(500); echo json_encode(['error' => 'Could not move file to trash']); return;
+    }
+
+    // Invalidate library cache so the song disappears from listings on next fetch.
+    if (file_exists(CACHE_FILE))       @unlink(CACHE_FILE);
+    if (file_exists(FINGERPRINT_FILE)) @unlink(FINGERPRINT_FILE);
+    echo json_encode(['ok' => true, 'trashed' => basename($dst)]);
+}
+
+// ─── LAST.FM PROXY ───────────────────────────────────────────────────────────
+// Thin pass-through so the key stays on the server. Clients call these
+// instead of audioscrobbler.com directly. Returns 503 if no key is configured.
+function _lfmCall(string $method, array $params): void {
+    header('Content-Type: application/json; charset=utf-8');
+    if (LFM_API_KEY === '') {
+        http_response_code(503);
+        echo json_encode(['error' => 'Last.fm key not configured on server']);
+        return;
+    }
+    $qs = http_build_query(array_merge($params, [
+        'method'  => $method,
+        'api_key' => LFM_API_KEY,
+        'format'  => 'json',
+    ]));
+    $url = 'https://ws.audioscrobbler.com/2.0/?' . $qs;
+    $ctx = stream_context_create(['http' => ['timeout' => 10, 'ignore_errors' => true, 'header' => "User-Agent: MusicApp/1.0\r\n"]]);
+    $resp = @file_get_contents($url, false, $ctx);
+    if ($resp === false) {
+        http_response_code(502);
+        echo json_encode(['error' => 'Last.fm request failed']);
+        return;
+    }
+    // Cache successful responses briefly — Last.fm rate-limits and these
+    // results barely change. 1 day is plenty for similarity data.
+    header('Cache-Control: private, max-age=86400');
+    echo $resp;
+}
+function handleLfmSimilarTracks(): void {
+    _lfmCall('track.getSimilar', [
+        'track'  => isset($_GET['track'])  ? (string)$_GET['track']  : '',
+        'artist' => isset($_GET['artist']) ? (string)$_GET['artist'] : '',
+        'limit'  => isset($_GET['limit'])  ? (int)$_GET['limit']     : 50,
+    ]);
+}
+function handleLfmSimilarArtists(): void {
+    _lfmCall('artist.getSimilar', [
+        'artist' => isset($_GET['artist']) ? (string)$_GET['artist'] : '',
+        'limit'  => isset($_GET['limit'])  ? (int)$_GET['limit']     : 15,
+    ]);
+}
+
 // ─── SIGN ─────────────────────────────────────────────────────────────────────
 function handleSign() {
     header('Content-Type: application/json');
