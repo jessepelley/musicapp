@@ -17,6 +17,7 @@ define('AUTH_DB_PATH', '/volume3/web/jjjp.ca/src/posts.db');
 define('CACHE_FILE',       __DIR__ . '/.library-cache.json');
 define('FINGERPRINT_FILE', __DIR__ . '/.library-fingerprint');
 define('SONG_CACHE_FILE',  __DIR__ . '/.song-meta-cache.json');
+define('TAG_OVERRIDES_FILE', __DIR__ . '/.tag-overrides.json');
 define('CACHE_TTL',        86400); // 24 hours
 define('DEBUG',       false);
 define('ART_CACHE_DIR', __DIR__ . '/artcache');
@@ -176,6 +177,8 @@ elseif  ($action === 'get_playlists')   handleGetPlaylists();
 elseif  ($action === 'save_playlists')  handleSavePlaylists();
 elseif  ($action === 'get_meta')        handleGetMeta();
 elseif  ($action === 'save_meta')       handleSaveMeta();
+elseif  ($action === 'get_tag_overrides')  handleGetTagOverrides();
+elseif  ($action === 'save_tag_overrides') handleSaveTagOverrides();
 elseif  ($action === 'nowplaying_get')    handleNowPlayingGet();
 elseif  ($action === 'nowplaying_set')    handleNowPlayingSet();
 elseif  ($action === 'albumart')          handleAlbumArt();
@@ -377,6 +380,86 @@ function handleSaveMeta() {
         return;
     }
     echo json_encode(['ok' => true]);
+}
+
+// ─── GLOBAL TAG OVERRIDES ────────────────────────────────────────────────────
+// Per-user meta (stars, plays, dates) lives in meta-{userhash}.json.
+// Tag overrides (title, artist, album_artist, album, year, genre, track,
+// disc) are SHARED across all users so a single correction applies
+// everywhere. Stored keyed by song id with only the overridden fields.
+// Applied to the library cache at scan time in handleLibrary().
+const TAG_OVERRIDE_FIELDS = ['title','artist','album_artist','album','year','genre','track','disc'];
+
+function readTagOverrides(): array {
+    if (!file_exists(TAG_OVERRIDES_FILE)) return [];
+    $raw = @file_get_contents(TAG_OVERRIDES_FILE);
+    if (!$raw) return [];
+    $d = json_decode($raw, true);
+    return is_array($d) ? $d : [];
+}
+function writeTagOverrides(array $data) {
+    return @file_put_contents(
+        TAG_OVERRIDES_FILE,
+        json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+        LOCK_EX
+    );
+}
+function handleGetTagOverrides() {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['overrides' => readTagOverrides()]);
+}
+function handleSaveTagOverrides() {
+    header('Content-Type: application/json; charset=utf-8');
+    $body = file_get_contents('php://input');
+    $data = $body ? json_decode($body, true) : null;
+    if (!$data || !isset($data['overrides'])) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid payload']);
+        return;
+    }
+    $existing = readTagOverrides();
+    foreach ($data['overrides'] as $id => $patch) {
+        if (!is_string($id) || !is_array($patch)) continue;
+        if (!isset($existing[$id])) $existing[$id] = [];
+        foreach ($patch as $k => $v) {
+            if (!in_array($k, TAG_OVERRIDE_FIELDS, true)) continue;
+            $isNum = ($k === 'year' || $k === 'track' || $k === 'disc');
+            if ($v === '' || $v === null) {
+                // Empty value clears the override for this field
+                unset($existing[$id][$k]);
+            } else {
+                $existing[$id][$k] = $isNum ? (int)$v : substr((string)$v, 0, 300);
+            }
+        }
+        // Drop empty entries so the file doesn't accumulate cruft
+        if (empty($existing[$id])) unset($existing[$id]);
+    }
+    if (writeTagOverrides($existing) === false) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Could not write tag overrides file']);
+        return;
+    }
+    // Invalidate the library cache so the next library/library_check reflects
+    // the new overrides for every user.
+    if (file_exists(CACHE_FILE)) @unlink(CACHE_FILE);
+    if (file_exists(FINGERPRINT_FILE)) @unlink(FINGERPRINT_FILE);
+    echo json_encode(['ok' => true]);
+}
+
+// Apply global overrides to a song record (modifies in-place via reference).
+// Stashes each replaced value into $song['_orig'] so the frontend edit sheet
+// can show what the file actually had and offer a "Reset" action.
+function applyTagOverridesToSong(array &$song, array $overrides): void {
+    $id = $song['id'] ?? '';
+    if (!$id || !isset($overrides[$id])) return;
+    $orig = [];
+    foreach (TAG_OVERRIDE_FIELDS as $k) {
+        if (isset($overrides[$id][$k]) && $overrides[$id][$k] !== '' && $overrides[$id][$k] !== null) {
+            $orig[$k] = $song[$k] ?? null;
+            $song[$k] = $overrides[$id][$k];
+        }
+    }
+    if (!empty($orig)) $song['_orig'] = $orig;
 }
 // ─── SEARCH MISS LOG ─────────────────────────────────────────────────────────
 // Shared across all users (not per-user) so the owner sees all requests.
@@ -1199,8 +1282,11 @@ function handleLibrary() {
     // Load audit-state once so we can stamp every damaged song with a status
     // the UI can render (badge, icon, "corrupt" label).
     $auditState = function_exists('auditStateLoad') ? auditStateLoad() : [];
+    $tagOverrides = readTagOverrides();
     foreach ($songs as &$s) {
         $s['id'] = hash('crc32b', $s['path']);
+        // Apply shared tag overrides so every user gets the corrected fields.
+        applyTagOverridesToSong($s, $tagOverrides);
         if (isset($auditState[$s['path']])) {
             $st = $auditState[$s['path']]['status'] ?? '';
             if ($st && $st !== 'ok') {
